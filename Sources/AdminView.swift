@@ -32,6 +32,8 @@ struct AdminView: View {
     @State private var message = ""
     @State private var linkCheckMessage = ""
     @State private var linkCheckIsError = false
+    @State private var isDownloadingTikTok = false
+    @State private var downloadStatus = ""
     @State private var selectedPhoto: PhotosPickerItem?
     @State private var showImporter = false
     @State private var newPIN = ""
@@ -53,30 +55,24 @@ struct AdminView: View {
                         Label("Paste copied link", systemImage: "doc.on.clipboard")
                     }
                     Button {
-                        let value = link.trimmingCharacters(in: .whitespacesAndNewlines)
-                        let candidate = value.contains("://") ? value : "https://\(value)"
-                        guard let url = URL(string: candidate),
-                              let host = url.host?.lowercased(),
-                              (host == "tiktok.com" || host.hasSuffix(".tiktok.com")),
-                              ["http", "https"].contains(url.scheme?.lowercased() ?? "") else {
-                            linkCheckIsError = true
-                            linkCheckMessage = "That doesn't look like a valid TikTok link. Copy the video link from TikTok and paste it here."
-                            return
-                        }
-                        linkCheckIsError = false
-                        linkCheckMessage = "TikTok link format looks OK. Nelly cannot download TikTok videos. Open this video in TikTok, tap Share → Save Video (if the creator allows it), then import the saved video using the Photos or Files button below. No download has started."
+                        Task { await downloadTikTokVideo() }
                     } label: {
-                        Label("Check link & show import steps", systemImage: "checkmark.circle")
+                        Label(isDownloadingTikTok ? "Downloading…" : "Download video", systemImage: "arrow.down.circle.fill")
                     }
-                    .disabled(link.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                    .accessibilityHint("Checks the link format only and explains how to import a video. It does not download.")
+                    .disabled(isDownloadingTikTok || link.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    if isDownloadingTikTok {
+                        ProgressView()
+                        Text(downloadStatus)
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                    }
                     if !linkCheckMessage.isEmpty {
                         Label {
                             Text(linkCheckMessage)
                                 .font(.subheadline)
                                 .fixedSize(horizontal: false, vertical: true)
                         } icon: {
-                            Image(systemName: linkCheckIsError ? "exclamationmark.triangle.fill" : "info.circle.fill")
+                            Image(systemName: linkCheckIsError ? "exclamationmark.triangle.fill" : "checkmark.circle.fill")
                         }
                         .foregroundStyle(linkCheckIsError ? .red : .primary)
                         .padding(.vertical, 8)
@@ -84,7 +80,7 @@ struct AdminView: View {
                         .accessibilityElement(children: .combine)
                         .accessibilityAddTraits(.updatesFrequently)
                     }
-                    Text("A link by itself does not add a video. Nelly does not scrape TikTok or use unofficial download services.")
+                    Text("Uses an independent third-party downloader, not an official TikTok service. Download only videos you have permission to save. Some links may fail if the provider cannot access them.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                     PhotosPicker(selection: $selectedPhoto, matching: .videos) {
@@ -210,6 +206,108 @@ struct AdminView: View {
                         }
                     }
                 }
+            }
+        }
+    }
+
+
+    private func downloadTikTokVideo() async {
+        let raw = link.trimmingCharacters(in: .whitespacesAndNewlines)
+        let candidate = raw.contains("://") ? raw : "https://\\(raw)"
+        guard let inputURL = URL(string: candidate),
+              let host = inputURL.host?.lowercased(),
+              (host == "tiktok.com" || host.hasSuffix(".tiktok.com")),
+              ["http", "https"].contains(inputURL.scheme?.lowercased() ?? "") else {
+            linkCheckIsError = true
+            linkCheckMessage = "Please paste a valid TikTok video link."
+            return
+        }
+
+        isDownloadingTikTok = true
+        linkCheckMessage = ""
+        linkCheckIsError = false
+        downloadStatus = "Connecting to video service…"
+        defer { isDownloadingTikTok = false; downloadStatus = "" }
+
+        do {
+            var request = URLRequest(url: URL(string: "https://www.tikwm.com/api/")!)
+            request.httpMethod = "POST"
+            request.timeoutInterval = 45
+            request.setValue("application/x-www-form-urlencoded; charset=UTF-8", forHTTPHeaderField: "Content-Type")
+            request.setValue("Nelly iOS app", forHTTPHeaderField: "User-Agent")
+            var form = URLComponents()
+            form.queryItems = [URLQueryItem(name: "url", value: inputURL.absoluteString),
+                               URLQueryItem(name: "hd", value: "1")]
+            request.httpBody = form.percentEncodedQuery?.data(using: .utf8)
+
+            let (responseData, response) = try await URLSession.shared.data(for: request)
+            guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else {
+                throw TikTokDownloadError.serviceUnavailable
+            }
+            let result = try JSONDecoder().decode(TikWMResponse.self, from: responseData)
+            guard result.code == 0, let video = result.data else {
+                throw TikTokDownloadError.provider(result.msg ?? "The service could not retrieve this video.")
+            }
+            guard video.images?.isEmpty ?? true else {
+                throw TikTokDownloadError.notVideo
+            }
+            guard let rawVideoURL = video.hdplay ?? video.play,
+                  let videoURL = URL(string: rawVideoURL, relativeTo: URL(string: "https://www.tikwm.com/"))?.absoluteURL,
+                  ["http", "https"].contains(videoURL.scheme?.lowercased() ?? "") else {
+                throw TikTokDownloadError.noDownload
+            }
+
+            downloadStatus = "Downloading video to Nelly…"
+            var videoRequest = URLRequest(url: videoURL)
+            videoRequest.timeoutInterval = 180
+            videoRequest.setValue("https://www.tikwm.com/", forHTTPHeaderField: "Referer")
+            let (temporaryURL, videoResponse) = try await URLSession.shared.download(for: videoRequest)
+            guard let videoHTTP = videoResponse as? HTTPURLResponse,
+                  (200...299).contains(videoHTTP.statusCode) else {
+                throw TikTokDownloadError.videoDownloadFailed
+            }
+            let values = try temporaryURL.resourceValues(forKeys: [.fileSizeKey])
+            guard (values.fileSize ?? 0) > 0 else { throw LibraryError.invalidVideo }
+
+            let safeTitle = (video.title?.isEmpty == false ? video.title! : "TikTok video")
+                .replacingOccurrences(of: "/", with: "-")
+            try library.importVideo(from: temporaryURL, fileName: safeTitle + ".mp4")
+            linkCheckIsError = false
+            linkCheckMessage = "Video downloaded and added to Nelly's library."
+            link = ""
+        } catch {
+            linkCheckIsError = true
+            linkCheckMessage = "Download failed: \\(error.localizedDescription)"
+        }
+    }
+
+    private struct TikWMResponse: Decodable {
+        let code: Int
+        let msg: String?
+        let data: TikWMVideo?
+    }
+
+    private struct TikWMVideo: Decodable {
+        let play: String?
+        let hdplay: String?
+        let title: String?
+        let images: [String]?
+    }
+
+    private enum TikTokDownloadError: LocalizedError {
+        case serviceUnavailable
+        case provider(String)
+        case notVideo
+        case noDownload
+        case videoDownloadFailed
+
+        var errorDescription: String? {
+            switch self {
+            case .serviceUnavailable: return "The download service is unavailable. Please try again later."
+            case .provider(let message): return message
+            case .notVideo: return "This TikTok post is a photo slideshow. Nelly currently imports videos only."
+            case .noDownload: return "The service did not provide a video file for this link."
+            case .videoDownloadFailed: return "The video could not be downloaded from the provider."
             }
         }
     }
