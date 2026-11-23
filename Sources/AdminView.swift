@@ -1,6 +1,7 @@
 import SwiftUI
 import UIKit
 import PhotosUI
+import CoreTransferable
 import UniformTypeIdentifiers
 
 private struct ImportedMovie: Transferable {
