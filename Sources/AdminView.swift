@@ -20,28 +20,45 @@ struct AdminView: View {
         NavigationStack {
             Form {
                 Section("Add a video") {
-                    TextField("Paste TikTok, YouTube or video link", text: $link)
-                        .keyboardType(.URL).textInputAutocapitalization(.never).autocorrectionDisabled()
+                    TextField("Paste TikTok, YouTube or direct video link", text: $link)
+                        .keyboardType(.URL)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
                     Button("Add video link") {
-                        do { try library.addLink(link); link = ""; message = "Video added." }
-                        catch { message = error.localizedDescription }
-                    }.disabled(link.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                        do {
+                            try library.addLink(link)
+                            link = ""
+                            message = "Video added."
+                        } catch {
+                            message = error.localizedDescription
+                        }
+                    }
+                    .disabled(link.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                     PhotosPicker(selection: $selectedPhoto, matching: .videos) {
                         Label("Choose video from Photos", systemImage: "photo")
                     }
                     Button { showImporter = true } label: {
                         Label("Import video from Files", systemImage: "folder")
                     }
-                    if !message.isEmpty { Text(message).font(.caption).foregroundStyle(.secondary) }
+                    Text("Some links cannot be played inside Nelly. If that happens, import the video from Photos or Files.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    if !message.isEmpty {
+                        Text(message).font(.caption).foregroundStyle(.secondary)
+                    }
                 }
 
                 Section("Your video library") {
-                    if library.videos.isEmpty { Text("No videos added yet.").foregroundStyle(.secondary) }
+                    if library.videos.isEmpty {
+                        Text("No videos added yet.").foregroundStyle(.secondary)
+                    }
                     ForEach(library.videos) { video in
                         HStack {
                             VStack(alignment: .leading, spacing: 4) {
                                 Text(label(for: video)).font(.subheadline.weight(.medium))
-                                Text(video.kind.rawValue.capitalized).font(.caption).foregroundStyle(.secondary)
+                                Text(video.kind.rawValue.capitalized)
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
                             }
                             Spacer()
                             Button { editingVideo = video } label: {
@@ -54,8 +71,11 @@ struct AdminView: View {
                                         library.videos[i].enabled = value
                                     }
                                 }
-                            )).labelsHidden()
-                            Button(role: .destructive) { library.delete(video) } label: {
+                            ))
+                            .labelsHidden()
+                            Button(role: .destructive) {
+                                library.delete(video)
+                            } label: {
                                 Image(systemName: "trash")
                             }
                         }
@@ -75,12 +95,17 @@ struct AdminView: View {
                     SecureField("New numeric PIN", text: $newPIN).keyboardType(.numberPad)
                     Button("Change PIN") {
                         if newPIN.count >= 4 && newPIN.allSatisfy(\.isNumber) {
-                            adminPIN = newPIN; newPIN = ""; message = "PIN changed."
-                        } else { message = "PIN must contain at least 4 digits." }
+                            adminPIN = newPIN
+                            newPIN = ""
+                            message = "PIN changed."
+                        } else {
+                            message = "PIN must contain at least 4 digits."
+                        }
                     }
                     if adminPIN == "2468" {
                         Text("Change the default PIN before giving Nelly to your daughter.")
-                            .font(.caption).foregroundStyle(.orange)
+                            .font(.caption)
+                            .foregroundStyle(.orange)
                     }
                 }
 
@@ -91,7 +116,8 @@ struct AdminView: View {
 
                 Section {
                     Text("For the strongest child lock, enable Guided Access in iPhone Settings → Accessibility → Guided Access.")
-                        .font(.footnote).foregroundStyle(.secondary)
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
                 }
             }
             .navigationTitle("Nelly Admin")
@@ -107,7 +133,9 @@ struct AdminView: View {
                     let data = try Data(contentsOf: url)
                     try library.importVideo(data: data, fileName: url.lastPathComponent)
                     message = "Video imported."
-                } catch { message = "Could not import video: \(error.localizedDescription)" }
+                } catch {
+                    message = "Could not import video: \(error.localizedDescription)"
+                }
             }
             .onChange(of: selectedPhoto) { _, item in
                 Task {
@@ -115,7 +143,9 @@ struct AdminView: View {
                     do {
                         try library.importVideo(data: data, fileName: "Photos-video.mov")
                         message = "Video imported from Photos."
-                    } catch { message = error.localizedDescription }
+                    } catch {
+                        message = error.localizedDescription
+                    }
                 }
             }
             .sheet(item: $editingVideo) { video in
@@ -127,7 +157,11 @@ struct AdminView: View {
                         Text(URL(string: entry)?.host ?? entry).lineLimit(1)
                     }
                     .navigationTitle("Watch history")
-                    .toolbar { ToolbarItem(placement: .topBarTrailing) { Button("Done") { showHistory = false } } }
+                    .toolbar {
+                        ToolbarItem(placement: .topBarTrailing) {
+                            Button("Done") { showHistory = false }
+                        }
+                    }
                 }
             }
         }
