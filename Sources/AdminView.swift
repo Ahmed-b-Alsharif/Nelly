@@ -19,30 +19,39 @@ struct AdminView: View {
     var body: some View {
         NavigationStack {
             Form {
-                Section("Add a video") {
-                    TextField("Paste TikTok, YouTube or direct video link", text: $link)
+                Section("Add a TikTok video") {
+                    TextField("Paste TikTok video link", text: $link)
                         .keyboardType(.URL)
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled()
-                    Button("Add video link") {
-                        do {
-                            try library.addLink(link)
-                            link = ""
-                            message = "Video added."
-                        } catch {
-                            message = error.localizedDescription
+                    Button {
+                        if let copied = UIPasteboard.general.string { link = copied }
+                        else { message = "Copy a TikTok link first, then tap Paste link." }
+                    } label: {
+                        Label("Paste copied link", systemImage: "doc.on.clipboard")
+                    }
+                    Button {
+                        let value = link.trimmingCharacters(in: .whitespacesAndNewlines)
+                        guard let url = URL(string: value),
+                              url.host?.lowercased().contains("tiktok.com") == true,
+                              ["http", "https"].contains(url.scheme?.lowercased() ?? "") else {
+                            message = "Please paste a valid TikTok link."
+                            return
                         }
+                        message = "TikTok does not provide Nelly with an official direct-download service for ordinary video links. In TikTok, use Share → Save Video (if available), then import it below. Nelly will keep the saved copy offline."
+                    } label: {
+                        Label("Check TikTok link", systemImage: "arrow.down.circle")
                     }
                     .disabled(link.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    Text("For safety and reliability, Nelly won't scrape TikTok or use unofficial download services. A copied TikTok link alone cannot be guaranteed to provide the video file.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                     PhotosPicker(selection: $selectedPhoto, matching: .videos) {
-                        Label("Choose video from Photos", systemImage: "photo")
+                        Label("Import saved video from Photos", systemImage: "photo")
                     }
                     Button { showImporter = true } label: {
                         Label("Import video from Files", systemImage: "folder")
                     }
-                    Text("Some links cannot be played inside Nelly. If that happens, import the video from Photos or Files.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
                     if !message.isEmpty {
                         Text(message).font(.caption).foregroundStyle(.secondary)
                     }
