@@ -41,6 +41,11 @@ struct HomeView: View {
                 library.recordWatch(item)
             }
         }
+        .onChange(of: library.activeVideos) { _, active in
+            if !active.contains(where: { $0.id == currentVideoID }) {
+                currentVideoID = active.first?.id
+            }
+        }
     }
 
     private var feed: some View {
@@ -58,10 +63,14 @@ struct HomeView: View {
                                     Spacer()
                                     Button { screenTime.setPlaying(!screenTime.isPlaying) } label: {
                                         Image(systemName: screenTime.isPlaying ? "pause.fill" : "play.fill")
-                                            .font(.title2).foregroundStyle(.white)
-                                            .padding(16).background(.black.opacity(0.38), in: Circle())
+                                            .font(.system(size: 23, weight: .bold))
+                                            .foregroundStyle(.white)
+                                            .frame(width: 58, height: 58)
+                                            .background(.black.opacity(0.48), in: Circle())
+                                            .overlay(Circle().stroke(.white.opacity(0.75), lineWidth: 1))
                                     }
-                                }.padding(.trailing, 22).padding(.bottom, 36)
+                                    .accessibilityLabel(screenTime.isPlaying ? "Pause video" : "Play video")
+                                }.padding(.trailing, 22).padding(.bottom, 34)
                             }
                         }
                         .containerRelativeFrame(.vertical)
