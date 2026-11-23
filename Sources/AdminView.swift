@@ -8,7 +8,16 @@ private struct ImportedMovie: Transferable {
     let url: URL
     static var transferRepresentation: some TransferRepresentation {
         FileRepresentation(importedContentType: .movie) { received in
-            ImportedMovie(url: received.file)
+            // Photos may provide a short-lived transfer URL. Copy it while the
+            // representation is being received so it remains available after
+            // loadTransferable returns.
+            let source = received.file
+            let ext = source.pathExtension.isEmpty ? "mov" : source.pathExtension
+            let stagedURL = FileManager.default.temporaryDirectory
+                .appendingPathComponent("Nelly-import-\(UUID().uuidString)")
+                .appendingPathExtension(ext)
+            try FileManager.default.copyItem(at: source, to: stagedURL)
+            return ImportedMovie(url: stagedURL)
         }
     }
 }
@@ -179,8 +188,9 @@ struct AdminView: View {
                         guard let movie = try await item.loadTransferable(type: ImportedMovie.self) else {
                             throw LibraryError.invalidVideo
                         }
+                        defer { try? FileManager.default.removeItem(at: movie.url) }
                         try library.importVideo(from: movie.url, fileName: movie.url.lastPathComponent)
-                        message = "Video imported from Photos."
+                        message = "Video imported from Photos and saved to Nelly."
                     } catch {
                         message = "Could not import video: \(error.localizedDescription)"
                     }
