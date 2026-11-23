@@ -17,7 +17,9 @@ final class LibraryStore: ObservableObject {
         watchHistory = UserDefaults.standard.stringArray(forKey: "nelly.history") ?? []
     }
 
-    var activeVideos: [VideoItem] { videos.filter(\.enabled) }
+    // The child feed contains only videos copied into Nelly's private storage.
+    // Web links remain visible to the parent in Admin but are never played by the child.
+    var activeVideos: [VideoItem] { videos.filter { $0.enabled && $0.kind == .file } }
 
     func addLink(_ raw: String) throws {
         guard let url = URL(string: raw.trimmingCharacters(in: .whitespacesAndNewlines)),
