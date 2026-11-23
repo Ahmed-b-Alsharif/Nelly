@@ -98,10 +98,10 @@ struct AdminView: View {
                     if library.videos.isEmpty {
                         Text("No videos added yet.").foregroundStyle(.secondary)
                     }
-                    ForEach(library.videos) { video in
+                    ForEach(Array(library.videos.enumerated()), id: \.element.id) { index, video in
                         HStack {
                             VStack(alignment: .leading, spacing: 4) {
-                                Text(label(for: video)).font(.subheadline.weight(.medium))
+                                Text("\(index + 1)").font(.subheadline.weight(.medium))
                                 Text(video.kind.rawValue.capitalized)
                                     .font(.caption)
                                     .foregroundStyle(.secondary)
