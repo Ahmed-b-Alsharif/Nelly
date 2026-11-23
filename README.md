@@ -14,9 +14,9 @@ A private, parent-curated video player for a young child. Nelly targets iPhone a
 - Pink butterfly app icon generated during the build.
 
 ## Adding TikTok videos
-Nelly does not download videos directly from TikTok. A pasted TikTok URL is only checked for guidance; it does not add a playable video to the child feed. If TikTok provides the Save Video option for a video, a parent can save it, then import that saved file into Nelly from Photos or Files. Some creators disable saving, and Nelly does not bypass those restrictions or use unofficial download services.
+A parent can paste a TikTok video link into Admin and tap **Download video**. Nelly currently uses the independent TikWM service to resolve a public TikTok link, then downloads the returned MP4 into Nelly's private on-device library. The service is not affiliated with TikTok, can be unavailable or rate-limited, and may stop working if TikTok or the provider changes. Nelly shows an error when a link cannot be processed. Download only videos you have permission to save; this third-party service does not provide a reliable way for Nelly to verify the creator's download setting. TikTok photo slideshows are not supported by this video-only importer.
 
-The child feed plays only enabled local video files. Web links are not opened in the child feed.
+Parents can also import their own videos from Photos or Files. The child feed plays only enabled local video files; external web links are not opened in the child feed.
 
 ## Screen time and child safety
 - The daily timer counts while Nelly is active in the foreground, and pauses when the app becomes inactive or a parent opens Admin.
