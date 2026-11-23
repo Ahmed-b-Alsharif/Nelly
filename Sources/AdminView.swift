@@ -34,7 +34,9 @@ struct AdminView: View {
     @State private var linkCheckIsError = false
     @State private var isDownloadingTikTok = false
     @State private var downloadStatus = ""
-    @State private var selectedPhoto: PhotosPickerItem?
+    @State private var selectedPhotos: [PhotosPickerItem] = []
+    @State private var isImportingPhotos = false
+    @State private var photoImportProgress = 0
     @State private var showImporter = false
     @State private var newPIN = ""
     @State private var showHistory = false
@@ -83,8 +85,15 @@ struct AdminView: View {
                     Text("Uses an independent third-party downloader, not an official TikTok service. Download only videos you have permission to save. Some links may fail if the provider cannot access them.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
-                    PhotosPicker(selection: $selectedPhoto, matching: .videos) {
-                        Label("Import saved video from Photos", systemImage: "photo")
+                    PhotosPicker(selection: $selectedPhotos, maxSelectionCount: 20, matching: .videos) {
+                        Label("Select multiple videos from Photos", systemImage: "photo.on.rectangle.angled")
+                    }
+                    .disabled(isImportingPhotos)
+                    if isImportingPhotos {
+                        ProgressView(value: Double(photoImportProgress), total: Double(max(1, selectedPhotos.count)))
+                        Text("Importing video \(photoImportProgress) of \(selectedPhotos.count)…")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
                     }
                     Button { showImporter = true } label: {
                         Label("Import video from Files", systemImage: "folder")
@@ -177,21 +186,9 @@ struct AdminView: View {
                     message = "Could not import video: \(error.localizedDescription)"
                 }
             }
-            .onChange(of: selectedPhoto) { _, item in
-                guard let item else { return }
-                Task {
-                    do {
-                        guard let movie = try await item.loadTransferable(type: ImportedMovie.self) else {
-                            throw LibraryError.invalidVideo
-                        }
-                        defer { try? FileManager.default.removeItem(at: movie.url) }
-                        try library.importVideo(from: movie.url, fileName: movie.url.lastPathComponent)
-                        message = "Video imported from Photos and saved to Nelly."
-                    } catch {
-                        message = "Could not import video: \(error.localizedDescription)"
-                    }
-                    selectedPhoto = nil
-                }
+            .onChange(of: selectedPhotos) { _, items in
+                guard !items.isEmpty, !isImportingPhotos else { return }
+                Task { await importSelectedPhotos(items) }
             }
             .sheet(item: $editingVideo) { video in VideoEditorView(video: video) }
             .sheet(isPresented: $showHistory) {
@@ -210,6 +207,37 @@ struct AdminView: View {
         }
     }
 
+
+    private func importSelectedPhotos(_ items: [PhotosPickerItem]) async {
+        isImportingPhotos = true
+        photoImportProgress = 0
+        var imported = 0
+        var failures = 0
+        defer {
+            isImportingPhotos = false
+            selectedPhotos = []
+        }
+
+        for item in items {
+            do {
+                guard let movie = try await item.loadTransferable(type: ImportedMovie.self) else {
+                    throw LibraryError.invalidVideo
+                }
+                defer { try? FileManager.default.removeItem(at: movie.url) }
+                try library.importVideo(from: movie.url, fileName: movie.url.lastPathComponent)
+                imported += 1
+            } catch {
+                failures += 1
+            }
+            photoImportProgress += 1
+        }
+
+        if failures == 0 {
+            message = imported == 1 ? "1 video imported from Photos." : "\(imported) videos imported from Photos."
+        } else {
+            message = "\(imported) video(s) imported; \(failures) could not be imported."
+        }
+    }
 
     private func downloadTikTokVideo() async {
         let raw = link.trimmingCharacters(in: .whitespacesAndNewlines)
