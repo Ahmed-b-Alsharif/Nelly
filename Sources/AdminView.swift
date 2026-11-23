@@ -130,8 +130,8 @@ struct AdminView: View {
                 }
 
                 Section("Screen time") {
-                    Stepper("Daily limit: \(screenTime.dailyLimit) minutes", value: $screenTime.dailyLimit, in: 5...240, step: 5)
-                    Text("Remaining today: \(screenTime.remainingSeconds / 60) minutes")
+                    Stepper("Daily limit: \(screenTime.dailyLimit) minutes", value: $screenTime.dailyLimit, in: 1...240, step: 1)
+                    Text("Remaining today: \(screenTime.remainingSeconds / 60) min \(screenTime.remainingSeconds % 60) sec")
                         .foregroundStyle(.secondary)
                     Button("Reset today's viewing time") { screenTime.resetToday() }
                     Button("Parent override — allow viewing now") { screenTime.parentOverride() }
