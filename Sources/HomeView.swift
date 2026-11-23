@@ -14,6 +14,9 @@ struct HomeView: View {
     @State private var confirmPIN = ""
     @State private var pinError = ""
     @State private var currentVideoID: UUID?
+    @State private var showGrid = false
+    @State private var limitPIN = ""
+    @State private var limitPINError = ""
 
     private var isLockedOut: Bool { Date().timeIntervalSince1970 < lockedUntil }
 
@@ -24,6 +27,8 @@ struct HomeView: View {
                 emptyState
             } else if screenTime.isLimitReached {
                 limitScreen
+            } else if showGrid {
+                videoGrid
             } else {
                 feed
             }
@@ -92,6 +97,14 @@ struct HomeView: View {
                         .onTapGesture {
                             screenTime.setPlaying(!screenTime.isPlaying)
                         }
+                        .simultaneousGesture(DragGesture(minimumDistance: 24).onEnded { value in
+                            let dx = value.translation.width
+                            let dy = value.translation.height
+                            if abs(dx) > abs(dy) && dx < -70 {
+                                showGrid = true
+                                screenTime.setPlaying(false)
+                            }
+                        })
                         .containerRelativeFrame(.vertical)
                         .id(item.id)
                     }
@@ -108,6 +121,51 @@ struct HomeView: View {
             }
         }
         .ignoresSafeArea()
+    }
+
+    private var videoGrid: some View {
+        VStack(spacing: 0) {
+            HStack {
+                Button {
+                    showGrid = false
+                    resetFeedToBeginningIfNeeded()
+                } label: { Image(systemName: "chevron.left").font(.title3.weight(.semibold)) }
+                Text("Videos").font(.headline)
+                Spacer()
+                Text("\(library.activeVideos.count) videos").font(.caption).foregroundStyle(.secondary)
+            }
+            .padding(.horizontal, 16).padding(.vertical, 12)
+            ScrollView {
+                LazyVGrid(columns: [GridItem(.flexible(), spacing: 5), GridItem(.flexible(), spacing: 5)], spacing: 8) {
+                    ForEach(library.activeVideos) { item in
+                        Button {
+                            currentVideoID = item.id
+                            showGrid = false
+                            screenTime.setPlaying(true)
+                        } label: {
+                            VStack(alignment: .leading, spacing: 5) {
+                                VideoGridThumbnail(item: item).frame(height: 220).clipped().clipShape(RoundedRectangle(cornerRadius: 8))
+                                Text(item.title?.isEmpty == false ? item.title! : "Video")
+                                    .font(.caption).lineLimit(2).foregroundStyle(.primary)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                            }
+                        }.buttonStyle(.plain)
+                    }
+                }.padding(.horizontal, 5).padding(.bottom, 20)
+            }
+        }
+        .background(Color(uiColor: .systemBackground))
+        .simultaneousGesture(DragGesture(minimumDistance: 24).onEnded { value in
+            if value.translation.width > 70 && abs(value.translation.width) > abs(value.translation.height) {
+                showGrid = false
+                resetFeedToBeginningIfNeeded()
+            }
+        })
+    }
+
+    private func resetFeedToBeginningIfNeeded() {
+        if currentVideoID == nil { currentVideoID = library.activeVideos.first?.id }
+        screenTime.setPlaying(true)
     }
 
     private func feedChrome(for item: VideoItem) -> some View {
@@ -207,11 +265,32 @@ struct HomeView: View {
 
     private var limitScreen: some View {
         VStack(spacing: 18) {
-            Image(systemName: "heart.fill").font(.system(size: 54)).foregroundStyle(.pink)
-            Text("That's enough for today").font(.title2.bold())
-            Text("Come back tomorrow for more videos.")
+            Image(systemName: "lock.fill").font(.system(size: 54)).foregroundStyle(.pink)
+            Text("Screen time is over").font(.title2.bold())
+            Text("Ask a parent to enter their PIN to continue.").multilineTextAlignment(.center)
+            SecureField("Parent PIN", text: $limitPIN)
+                .keyboardType(.numberPad).textFieldStyle(.roundedBorder)
+                .frame(maxWidth: 240).multilineTextAlignment(.center)
+            if !limitPINError.isEmpty { Text(limitPINError).font(.caption).foregroundStyle(.red) }
+            Button("Parent unlock") {
+                guard pinConfigured, limitPIN == adminPIN else {
+                    limitPIN = ""
+                    limitPINError = "Incorrect PIN. Ask a parent for help."
+                    return
+                }
+                limitPIN = ""
+                limitPINError = ""
+                screenTime.parentOverride()
+                showGrid = false
+                resetFeedToBeginning()
+            }
+            .buttonStyle(.borderedProminent).tint(.pink)
+            .disabled(!pinConfigured || limitPIN.isEmpty)
+            Text("Nelly stays locked until a parent approves more time.")
+                .font(.footnote).foregroundStyle(.white.opacity(0.65)).multilineTextAlignment(.center)
         }
-        .foregroundStyle(.white)
+        .padding(28).frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Color.black).foregroundStyle(.white)
     }
 
     private var pinSheet: some View {
