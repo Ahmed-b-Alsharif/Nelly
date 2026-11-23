@@ -33,7 +33,7 @@ struct HomeView: View {
         .task {
             while !Task.isCancelled {
                 try? await Task.sleep(for: .seconds(1))
-                if !showAdmin && !showPIN { screenTime.tick() }
+                if !showAdmin && !showPIN && !library.activeVideos.isEmpty { screenTime.tick() }
             }
         }
         .onChange(of: currentVideoID) { _, newID in
@@ -49,7 +49,7 @@ struct HomeView: View {
                 LazyVStack(spacing: 0) {
                     ForEach(library.activeVideos) { item in
                         ZStack {
-                            VideoPlayerView(item: item, isPlaying: screenTime.isPlaying)
+                            VideoPlayerView(item: item, isPlaying: screenTime.isPlaying && currentVideoID == item.id)
                                 .frame(width: geo.size.width, height: geo.size.height)
                                 .clipped()
                             VStack {
@@ -72,6 +72,7 @@ struct HomeView: View {
             .scrollPosition(id: $currentVideoID)
             .scrollTargetBehavior(.paging)
             .scrollIndicators(.hidden)
+            .onAppear { if currentVideoID == nil { currentVideoID = library.activeVideos.first?.id } }
         }
     }
 
