@@ -20,9 +20,10 @@ jobs:
       - name: Install XcodeGen and Pillow
         run: |
           brew install xcodegen
-          python3 -m pip install --user pillow
+          python3 -m venv .venv
+          .venv/bin/pip install pillow
       - name: Generate butterfly app icon
-        run: python3 scripts/generate_icon.py
+        run: .venv/bin/python scripts/generate_icon.py
       - name: Generate Xcode project
         run: xcodegen generate
       - name: Build unsigned app
