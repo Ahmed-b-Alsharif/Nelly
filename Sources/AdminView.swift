@@ -14,6 +14,7 @@ struct AdminView: View {
     @State private var showImporter = false
     @State private var newPIN = ""
     @State private var showHistory = false
+    @State private var editingVideo: VideoItem?
 
     var body: some View {
         NavigationStack {
@@ -43,6 +44,9 @@ struct AdminView: View {
                                 Text(video.kind.rawValue.capitalized).font(.caption).foregroundStyle(.secondary)
                             }
                             Spacer()
+                            Button { editingVideo = video } label: {
+                                Image(systemName: "pencil")
+                            }
                             Toggle("Available", isOn: Binding(
                                 get: { video.enabled },
                                 set: { value in
@@ -114,6 +118,9 @@ struct AdminView: View {
                     } catch { message = error.localizedDescription }
                 }
             }
+            .sheet(item: $editingVideo) { video in
+                VideoEditorView(video: video)
+            }
             .sheet(isPresented: $showHistory) {
                 NavigationStack {
                     List(library.watchHistory, id: \.self) { entry in
@@ -129,5 +136,61 @@ struct AdminView: View {
     private func label(for video: VideoItem) -> String {
         if video.kind == .file { return (video.value as NSString).lastPathComponent }
         return URL(string: video.value)?.host ?? "Video"
+    }
+}
+
+private struct VideoEditorView: View {
+    @EnvironmentObject private var library: LibraryStore
+    @Environment(\.dismiss) private var dismiss
+    let video: VideoItem
+    @State private var value: String
+    @State private var title: String
+    @State private var description: String
+    @State private var errorMessage = ""
+
+    init(video: VideoItem) {
+        self.video = video
+        _value = State(initialValue: video.value)
+        _title = State(initialValue: video.title ?? "")
+        _description = State(initialValue: video.description ?? "")
+    }
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                if video.kind != .file {
+                    Section("Video link") {
+                        TextField("Video URL", text: $value)
+                            .textInputAutocapitalization(.never)
+                            .autocorrectionDisabled()
+                            .keyboardType(.URL)
+                    }
+                }
+                Section("Private admin details") {
+                    TextField("Optional title", text: $title)
+                    TextEditor(text: $description)
+                        .frame(minHeight: 100)
+                }
+                if !errorMessage.isEmpty {
+                    Text(errorMessage).foregroundStyle(.red)
+                }
+            }
+            .navigationTitle("Edit video")
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Save") {
+                        do {
+                            try library.update(video, value: value, title: title, description: description)
+                            dismiss()
+                        } catch {
+                            errorMessage = error.localizedDescription
+                        }
+                    }
+                }
+            }
+        }
     }
 }
