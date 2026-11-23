@@ -28,7 +28,9 @@ final class ScreenTimeStore: ObservableObject {
         resetIfNewDay()
         guard isPlaying, !isLimitReached else { return }
         usedSeconds += 1
-        if isLimitReached { isPlaying = false }
+        if isLimitReached {
+            isPlaying = false
+        }
     }
 
     func setPlaying(_ value: Bool) { isPlaying = value && !isLimitReached }
