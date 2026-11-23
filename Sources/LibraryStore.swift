@@ -15,10 +15,9 @@ final class LibraryStore: ObservableObject {
             videos = saved
         }
         watchHistory = UserDefaults.standard.stringArray(forKey: "nelly.history") ?? []
+        migrateLegacyDocumentsIfNeeded()
     }
 
-    // The child feed contains only videos copied into Nelly's private storage.
-    // Web links remain visible to the parent in Admin but are never played by the child.
     var activeVideos: [VideoItem] { videos.filter { $0.enabled && $0.kind == .file } }
 
     func addLink(_ raw: String) throws {
@@ -34,16 +33,27 @@ final class LibraryStore: ObservableObject {
         videos.append(VideoItem(kind: kind, value: url.absoluteString))
     }
 
-    func importVideo(data: Data, fileName: String) throws {
-        let folder = try documentsFolder()
-        let safeName = UUID().uuidString + "-" + (fileName as NSString).lastPathComponent
-        try data.write(to: folder.appendingPathComponent(safeName), options: .atomic)
+    func importVideo(from sourceURL: URL, fileName: String) throws {
+        let folder = try privateVideoFolder()
+        let sourceName = (fileName as NSString).lastPathComponent
+        let ext = (sourceName as NSString).pathExtension
+        let base = (sourceName as NSString).deletingPathExtension
+        let safeBase = base.isEmpty ? "Video" : base
+        let safeName = UUID().uuidString + "-" + safeBase + (ext.isEmpty ? "" : ".\(ext)")
+        let destination = folder.appendingPathComponent(safeName, isDirectory: false)
+        let values = try sourceURL.resourceValues(forKeys: [.isRegularFileKey, .fileSizeKey])
+        guard values.isRegularFile == true, (values.fileSize ?? 0) > 0 else {
+            throw LibraryError.invalidVideo
+        }
+        try FileManager.default.copyItem(at: sourceURL, to: destination)
         videos.append(VideoItem(kind: .file, value: safeName))
     }
 
     func localURL(for item: VideoItem) -> URL? {
         guard item.kind == .file else { return nil }
-        return try? documentsFolder().appendingPathComponent(item.value)
+        guard let folder = try? privateVideoFolder() else { return nil }
+        let url = folder.appendingPathComponent(item.value, isDirectory: false)
+        return FileManager.default.fileExists(atPath: url.path) ? url : nil
     }
 
     func update(_ item: VideoItem, value: String, title: String) throws {
@@ -76,10 +86,28 @@ final class LibraryStore: ObservableObject {
         watchHistory = Array(watchHistory.prefix(100))
     }
 
-    private func documentsFolder() throws -> URL {
-        let folder = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+    private func privateVideoFolder() throws -> URL {
+        let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+        let folder = support.appendingPathComponent("NellyVideos", isDirectory: true)
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        var values = URLResourceValues()
+        values.isExcludedFromBackup = true
+        var mutableFolder = folder
+        try? mutableFolder.setResourceValues(values)
         return folder
+    }
+
+    private func migrateLegacyDocumentsIfNeeded() {
+        guard let destination = try? privateVideoFolder() else { return }
+        let documents = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+        for item in videos where item.kind == .file {
+            let oldURL = documents.appendingPathComponent(item.value)
+            let newURL = destination.appendingPathComponent(item.value)
+            if FileManager.default.fileExists(atPath: oldURL.path),
+               !FileManager.default.fileExists(atPath: newURL.path) {
+                try? FileManager.default.moveItem(at: oldURL, to: newURL)
+            }
+        }
     }
 
     private func persist() {
@@ -90,5 +118,11 @@ final class LibraryStore: ObservableObject {
 
 enum LibraryError: LocalizedError {
     case invalidLink
-    var errorDescription: String? { "Please enter a valid video link." }
+    case invalidVideo
+    var errorDescription: String? {
+        switch self {
+        case .invalidLink: return "Please enter a valid video link."
+        case .invalidVideo: return "The selected file is not a readable video."
+        }
+    }
 }
