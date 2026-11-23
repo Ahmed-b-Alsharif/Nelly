@@ -13,8 +13,6 @@ settings:
     INFOPLIST_KEY_CFBundleDisplayName: Nelly
     INFOPLIST_KEY_UILaunchScreen_Generation: YES
     INFOPLIST_KEY_NSPhotoLibraryUsageDescription: Select videos to add to Nelly's private library.
-    INFOPLIST_KEY_UIFileSharingEnabled: YES
-    INFOPLIST_KEY_LSSupportsOpeningDocumentsInPlace: YES
 targets:
   Nelly:
     type: application
