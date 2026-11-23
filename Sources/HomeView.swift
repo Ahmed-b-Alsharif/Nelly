@@ -15,6 +15,7 @@ struct HomeView: View {
     @State private var pinError = ""
     @State private var currentVideoID: UUID?
     @State private var playbackVideos: [VideoItem] = []
+    @State private var previousVideoID: UUID?
     @State private var showGrid = false
     @State private var limitPIN = ""
     @State private var limitPINError = ""
@@ -66,16 +67,17 @@ struct HomeView: View {
                 prepareRandomPlayback()
             }
         }
-        .onChange(of: currentVideoID) { _, newID in
+        .onChange(of: currentVideoID) { oldID, newID in
             if let item = playbackVideos.first(where: { $0.id == newID }) {
                 library.recordWatch(item)
-                if let lastID = playbackVideos.last?.id, newID == lastID {
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
+                if oldID != nil, let lastID = playbackVideos.last?.id, newID == lastID {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
                         if currentVideoID == lastID {
                             currentVideoID = playbackVideos.first?.id
                         }
                     }
                 }
+                previousVideoID = newID
             }
         }
         .onChange(of: library.activeVideos) { _, active in
