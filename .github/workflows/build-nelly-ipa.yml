@@ -1,0 +1,51 @@
+name: Build Nelly unsigned IPA
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_branch:
+        description: "Branch containing the Nelly app source"
+        required: true
+        default: "build/nelly-ios-app"
+        type: string
+
+jobs:
+  build:
+    runs-on: macos-15
+    timeout-minutes: 30
+    steps:
+      - name: Checkout Nelly source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.source_branch }}
+
+      - name: Install XcodeGen and generate icon
+        run: |
+          brew install xcodegen
+          python3 -m venv .venv
+          .venv/bin/pip install pillow
+          .venv/bin/python scripts/generate_icon.py
+
+      - name: Generate Xcode project
+        run: xcodegen generate
+
+      - name: Build unsigned app
+        run: |
+          xcodebuild -project Nelly.xcodeproj -scheme Nelly -configuration Release -sdk iphoneos -destination 'generic/platform=iOS' -derivedDataPath build/DerivedData CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" build
+
+      - name: Package unsigned IPA
+        run: |
+          APP_PATH="build/DerivedData/Build/Products/Release-iphoneos/Nelly.app"
+          test -d "$APP_PATH"
+          mkdir -p build/Payload
+          cp -R "$APP_PATH" build/Payload/Nelly.app
+          cd build
+          zip -r Nelly-unsigned.ipa Payload
+
+      - name: Upload IPA artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Nelly-unsigned-IPA
+          path: build/Nelly-unsigned.ipa
+          if-no-files-found: error
+          retention-days: 30
