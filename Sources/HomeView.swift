@@ -14,6 +14,7 @@ struct HomeView: View {
     @State private var confirmPIN = ""
     @State private var pinError = ""
     @State private var currentVideoID: UUID?
+    @State private var playbackVideos: [VideoItem] = []
     @State private var showGrid = false
     @State private var limitPIN = ""
     @State private var limitPINError = ""
@@ -48,7 +49,7 @@ struct HomeView: View {
         .sheet(isPresented: $showAdmin) { AdminView() }
         .onAppear {
             if !pinConfigured { showPIN = true }
-            resetFeedToBeginning()
+            prepareRandomPlayback()
         }
         .task {
             while !Task.isCancelled {
@@ -62,12 +63,19 @@ struct HomeView: View {
             if phase != .active {
                 screenTime.setPlaying(false)
             } else {
-                resetFeedToBeginning()
+                prepareRandomPlayback()
             }
         }
         .onChange(of: currentVideoID) { _, newID in
-            if let item = library.activeVideos.first(where: { $0.id == newID }) {
+            if let item = playbackVideos.first(where: { $0.id == newID }) {
                 library.recordWatch(item)
+                if let lastID = playbackVideos.last?.id, newID == lastID {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
+                        if currentVideoID == lastID {
+                            currentVideoID = playbackVideos.first?.id
+                        }
+                    }
+                }
             }
         }
         .onChange(of: library.activeVideos) { _, active in
@@ -81,7 +89,7 @@ struct HomeView: View {
         GeometryReader { geo in
             ScrollView(.vertical) {
                 LazyVStack(spacing: 0) {
-                    ForEach(library.activeVideos) { item in
+                    ForEach(playbackVideos) { item in
                         ZStack {
                             VideoPlayerView(item: item, isPlaying: screenTime.isPlaying && currentVideoID == item.id && scenePhase == .active)
                                 .frame(width: geo.size.width, height: geo.size.height)
@@ -164,8 +172,9 @@ struct HomeView: View {
     }
 
     private func resetFeedToBeginningIfNeeded() {
-        if currentVideoID == nil { currentVideoID = library.activeVideos.first?.id }
-        screenTime.setPlaying(true)
+        if playbackVideos.isEmpty { playbackVideos = library.activeVideos.shuffled() }
+        if currentVideoID == nil { currentVideoID = playbackVideos.randomElement()?.id }
+        screenTime.setPlaying(!screenTime.isLimitReached)
     }
 
     private func feedChrome(for item: VideoItem) -> some View {
@@ -250,9 +259,16 @@ struct HomeView: View {
         }
     }
 
+    private func prepareRandomPlayback() {
+        playbackVideos = library.activeVideos.shuffled()
+        currentVideoID = playbackVideos.randomElement()?.id
+        screenTime.setPlaying(!screenTime.isLimitReached)
+    }
+
     private func resetFeedToBeginning() {
-        currentVideoID = library.activeVideos.first?.id
-        screenTime.setPlaying(true)
+        if playbackVideos.isEmpty { playbackVideos = library.activeVideos.shuffled() }
+        currentVideoID = playbackVideos.randomElement()?.id
+        screenTime.setPlaying(!screenTime.isLimitReached)
     }
 
     private var emptyState: some View {
