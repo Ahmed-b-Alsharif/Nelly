@@ -134,6 +134,7 @@ struct AdminView: View {
     }
 
     private func label(for video: VideoItem) -> String {
+        if let title = video.title, !title.isEmpty { return title }
         if video.kind == .file { return (video.value as NSString).lastPathComponent }
         return URL(string: video.value)?.host ?? "Video"
     }
