@@ -1,5 +1,7 @@
 import SwiftUI
 
+// Rebuild the unsigned IPA from the latest child-safe playback changes.
+
 struct HomeView: View {
     @EnvironmentObject private var library: LibraryStore
     @EnvironmentObject private var screenTime: ScreenTimeStore
