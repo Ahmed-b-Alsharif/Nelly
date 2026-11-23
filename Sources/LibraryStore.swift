@@ -57,19 +57,22 @@ final class LibraryStore: ObservableObject {
     }
 
     func update(_ item: VideoItem, value: String, title: String) throws {
-        var updated = item
-        if item.kind != .file {
+        // Update the current stored record by stable ID. Do not replace the
+        // file-backed item with the older snapshot passed to the editor sheet.
+        guard let index = videos.firstIndex(where: { $0.id == item.id }) else {
+            throw LibraryError.videoNotFound
+        }
+
+        if videos[index].kind != .file {
             guard let url = URL(string: value.trimmingCharacters(in: .whitespacesAndNewlines)),
                   let host = url.host, host.contains("."),
                   ["http", "https"].contains(url.scheme?.lowercased() ?? "") else {
                 throw LibraryError.invalidLink
             }
-            updated.value = url.absoluteString
+            videos[index].value = url.absoluteString
         }
-        updated.title = title.isEmpty ? nil : title
-        if let index = videos.firstIndex(where: { $0.id == item.id }) {
-            videos[index] = updated
-        }
+        let cleanedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        videos[index].title = cleanedTitle.isEmpty ? nil : cleanedTitle
     }
 
     func delete(_ item: VideoItem) {
@@ -119,10 +122,12 @@ final class LibraryStore: ObservableObject {
 enum LibraryError: LocalizedError {
     case invalidLink
     case invalidVideo
+    case videoNotFound
     var errorDescription: String? {
         switch self {
         case .invalidLink: return "Please enter a valid video link."
         case .invalidVideo: return "The selected file is not a readable video."
+        case .videoNotFound: return "This video is no longer in the library. Close the editor and refresh the library."
         }
     }
 }
