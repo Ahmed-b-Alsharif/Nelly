@@ -11,5 +11,4 @@ struct VideoItem: Identifiable, Codable, Equatable {
     var enabled: Bool = true
     var addedAt: Date = Date()
     var title: String? = nil
-    var description: String? = nil
 }
