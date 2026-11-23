@@ -21,6 +21,8 @@ struct AdminView: View {
     @AppStorage("nelly.theme.dark") private var darkMode = false
     @State private var link = ""
     @State private var message = ""
+    @State private var linkCheckMessage = ""
+    @State private var linkCheckIsError = false
     @State private var selectedPhoto: PhotosPickerItem?
     @State private var showImporter = false
     @State private var newPIN = ""
@@ -36,24 +38,43 @@ struct AdminView: View {
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled()
                     Button {
-                        if let copied = UIPasteboard.general.string { link = copied }
-                        else { message = "Copy a TikTok link first, then tap Paste link." }
+                        if let copied = UIPasteboard.general.string { link = copied; linkCheckMessage = ""; linkCheckIsError = false }
+                        else { linkCheckIsError = true; linkCheckMessage = "Copy a TikTok link first, then tap Paste copied link." }
                     } label: {
                         Label("Paste copied link", systemImage: "doc.on.clipboard")
                     }
                     Button {
                         let value = link.trimmingCharacters(in: .whitespacesAndNewlines)
-                        guard let url = URL(string: value),
-                              url.host?.lowercased().contains("tiktok.com") == true,
+                        let candidate = value.contains("://") ? value : "https://\(value)"
+                        guard let url = URL(string: candidate),
+                              let host = url.host?.lowercased(),
+                              (host == "tiktok.com" || host.hasSuffix(".tiktok.com")),
                               ["http", "https"].contains(url.scheme?.lowercased() ?? "") else {
-                            message = "Please paste a valid TikTok link."
+                            linkCheckIsError = true
+                            linkCheckMessage = "That doesn't look like a valid TikTok link. Copy the video link from TikTok and paste it here."
                             return
                         }
-                        message = "In TikTok, use Share → Save Video (if available), then import the saved video below. Nelly stores the imported copy offline."
+                        linkCheckIsError = false
+                        linkCheckMessage = "TikTok link format looks OK. Nelly cannot download TikTok videos. Open this video in TikTok, tap Share → Save Video (if the creator allows it), then import the saved video using the Photos or Files button below. No download has started."
                     } label: {
-                        Label("Check TikTok link", systemImage: "arrow.down.circle")
+                        Label("Check link & show import steps", systemImage: "checkmark.circle")
                     }
                     .disabled(link.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    .accessibilityHint("Checks the link format only and explains how to import a video. It does not download.")
+                    if !linkCheckMessage.isEmpty {
+                        Label {
+                            Text(linkCheckMessage)
+                                .font(.subheadline)
+                                .fixedSize(horizontal: false, vertical: true)
+                        } icon: {
+                            Image(systemName: linkCheckIsError ? "exclamationmark.triangle.fill" : "info.circle.fill")
+                        }
+                        .foregroundStyle(linkCheckIsError ? .red : .primary)
+                        .padding(.vertical, 8)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .accessibilityElement(children: .combine)
+                        .accessibilityAddTraits(.updatesFrequently)
+                    }
                     Text("A link by itself does not add a video. Nelly does not scrape TikTok or use unofficial download services.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
