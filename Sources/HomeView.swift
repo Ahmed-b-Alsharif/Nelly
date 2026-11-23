@@ -15,7 +15,7 @@ struct HomeView: View {
     @State private var pinError = ""
     @State private var currentVideoID: UUID?
     @State private var playbackVideos: [VideoItem] = []
-    @State private var previousVideoID: UUID?
+    @State private var loopVideoID: UUID?
     @State private var showGrid = false
     @State private var limitPIN = ""
     @State private var limitPINError = ""
@@ -70,14 +70,9 @@ struct HomeView: View {
         .onChange(of: currentVideoID) { oldID, newID in
             if let item = playbackVideos.first(where: { $0.id == newID }) {
                 library.recordWatch(item)
-                if oldID != nil, let lastID = playbackVideos.last?.id, newID == lastID {
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
-                        if currentVideoID == lastID {
-                            currentVideoID = playbackVideos.first?.id
-                        }
-                    }
+                if newID == loopVideoID {
+                    currentVideoID = playbackVideos.first?.id
                 }
-                previousVideoID = newID
             }
         }
         .onChange(of: library.activeVideos) { _, active in
@@ -87,11 +82,19 @@ struct HomeView: View {
         }
     }
 
+    private var feedVideos: [VideoItem] {
+        guard !playbackVideos.isEmpty, let first = playbackVideos.first,
+              let loopID = loopVideoID else { return playbackVideos }
+        var loopCopy = first
+        loopCopy.id = loopID
+        return playbackVideos + [loopCopy]
+    }
+
     private var feed: some View {
         GeometryReader { geo in
             ScrollView(.vertical) {
                 LazyVStack(spacing: 0) {
-                    ForEach(playbackVideos) { item in
+                    ForEach(feedVideos) { item in
                         ZStack {
                             VideoPlayerView(item: item, isPlaying: screenTime.isPlaying && currentVideoID == item.id && scenePhase == .active)
                                 .frame(width: geo.size.width, height: geo.size.height)
@@ -174,8 +177,8 @@ struct HomeView: View {
     }
 
     private func resetFeedToBeginningIfNeeded() {
-        if playbackVideos.isEmpty { playbackVideos = library.activeVideos.shuffled() }
-        if currentVideoID == nil { currentVideoID = playbackVideos.randomElement()?.id }
+        if playbackVideos.isEmpty { prepareRandomPlayback(); return }
+        if currentVideoID == nil { currentVideoID = playbackVideos.first?.id }
         screenTime.setPlaying(!screenTime.isLimitReached)
     }
 
@@ -263,13 +266,14 @@ struct HomeView: View {
 
     private func prepareRandomPlayback() {
         playbackVideos = library.activeVideos.shuffled()
-        currentVideoID = playbackVideos.randomElement()?.id
+        loopVideoID = playbackVideos.first.map { _ in UUID() }
+        currentVideoID = playbackVideos.first?.id
         screenTime.setPlaying(!screenTime.isLimitReached)
     }
 
     private func resetFeedToBeginning() {
-        if playbackVideos.isEmpty { playbackVideos = library.activeVideos.shuffled() }
-        currentVideoID = playbackVideos.randomElement()?.id
+        if playbackVideos.isEmpty { prepareRandomPlayback(); return }
+        currentVideoID = playbackVideos.first?.id
         screenTime.setPlaying(!screenTime.isLimitReached)
     }
 
