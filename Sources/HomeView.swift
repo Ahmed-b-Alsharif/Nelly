@@ -76,16 +76,10 @@ struct HomeView: View {
                             VideoPlayerView(item: item, isPlaying: screenTime.isPlaying && currentVideoID == item.id && scenePhase == .active)
                                 .frame(width: geo.size.width, height: geo.size.height)
                                 .clipped()
-                            Button { screenTime.setPlaying(!screenTime.isPlaying) } label: {
-                                Image(systemName: screenTime.isPlaying ? "pause.fill" : "play.fill")
-                                    .font(.system(size: 25, weight: .bold))
-                                    .foregroundStyle(.white)
-                                    .frame(width: 68, height: 68)
-                                    .background(.black.opacity(0.48), in: Circle())
-                                    .overlay(Circle().stroke(.white.opacity(0.78), lineWidth: 1.5))
+                            .contentShape(Rectangle())
+                            .onTapGesture {
+                                screenTime.setPlaying(!screenTime.isPlaying)
                             }
-                            .accessibilityLabel(screenTime.isPlaying ? "Pause video" : "Play video")
-                            .buttonStyle(.plain)
                         }
                         .containerRelativeFrame(.vertical)
                         .id(item.id)
