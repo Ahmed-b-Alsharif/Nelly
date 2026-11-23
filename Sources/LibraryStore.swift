@@ -43,6 +43,22 @@ final class LibraryStore: ObservableObject {
         return try? documentsFolder().appendingPathComponent(item.value)
     }
 
+    func update(_ item: VideoItem, value: String, title: String, description: String) throws {
+        var updated = item
+        if item.kind != .file {
+            guard let url = URL(string: value.trimmingCharacters(in: .whitespacesAndNewlines)),
+                  let host = url.host, host.contains(".") else {
+                throw LibraryError.invalidLink
+            }
+            updated.value = url.absoluteString
+        }
+        updated.title = title.isEmpty ? nil : title
+        updated.description = description.isEmpty ? nil : description
+        if let index = videos.firstIndex(where: { $0.id == item.id }) {
+            videos[index] = updated
+        }
+    }
+
     func delete(_ item: VideoItem) {
         if let url = localURL(for: item) { try? FileManager.default.removeItem(at: url) }
         videos.removeAll { $0.id == item.id }
