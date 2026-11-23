@@ -4,10 +4,13 @@ import SwiftUI
 @MainActor
 final class ScreenTimeStore: ObservableObject {
     @Published var dailyLimit: Int {
-        didSet { UserDefaults.standard.set(dailyLimit, forKey: "nelly.dailyLimitMinutes") }
+        didSet {
+            dailyLimit = min(240, max(1, dailyLimit))
+            UserDefaults.standard.set(dailyLimit, forKey: "nelly.dailyLimitMinutes")
+        }
     }
     @Published private(set) var isPlaying = true
-    private var usedSeconds: Int {
+    @Published private(set) var usedSeconds: Int {
         didSet { UserDefaults.standard.set(usedSeconds, forKey: "nelly.usedSeconds") }
     }
     private var usageDay: String {
@@ -18,7 +21,7 @@ final class ScreenTimeStore: ObservableObject {
     var isLimitReached: Bool { remainingSeconds <= 0 }
 
     init() {
-        dailyLimit = max(5, UserDefaults.standard.object(forKey: "nelly.dailyLimitMinutes") as? Int ?? 45)
+        dailyLimit = min(240, max(1, UserDefaults.standard.object(forKey: "nelly.dailyLimitMinutes") as? Int ?? 45))
         usedSeconds = UserDefaults.standard.integer(forKey: "nelly.usedSeconds")
         usageDay = UserDefaults.standard.string(forKey: "nelly.usageDay") ?? ""
         resetIfNewDay()
@@ -26,11 +29,9 @@ final class ScreenTimeStore: ObservableObject {
 
     func tick() {
         resetIfNewDay()
-        guard !isLimitReached else { return }
+        guard !isLimitReached else { isPlaying = false; return }
         usedSeconds += 1
-        if isLimitReached {
-            isPlaying = false
-        }
+        if isLimitReached { isPlaying = false }
     }
 
     func setPlaying(_ value: Bool) { isPlaying = value && !isLimitReached }
