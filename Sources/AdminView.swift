@@ -146,14 +146,12 @@ private struct VideoEditorView: View {
     let video: VideoItem
     @State private var value: String
     @State private var title: String
-    @State private var description: String
     @State private var errorMessage = ""
 
     init(video: VideoItem) {
         self.video = video
         _value = State(initialValue: video.value)
         _title = State(initialValue: video.title ?? "")
-        _description = State(initialValue: video.description ?? "")
     }
 
     var body: some View {
@@ -169,8 +167,6 @@ private struct VideoEditorView: View {
                 }
                 Section("Private admin details") {
                     TextField("Optional title", text: $title)
-                    TextEditor(text: $description)
-                        .frame(minHeight: 100)
                 }
                 if !errorMessage.isEmpty {
                     Text(errorMessage).foregroundStyle(.red)
@@ -184,7 +180,7 @@ private struct VideoEditorView: View {
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Save") {
                         do {
-                            try library.update(video, value: value, title: title, description: description)
+                            try library.update(video, value: value, title: title)
                             dismiss()
                         } catch {
                             errorMessage = error.localizedDescription
