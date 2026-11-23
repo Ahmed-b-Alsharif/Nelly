@@ -213,7 +213,7 @@ struct AdminView: View {
 
     private func downloadTikTokVideo() async {
         let raw = link.trimmingCharacters(in: .whitespacesAndNewlines)
-        let candidate = raw.contains("://") ? raw : "https://\\(raw)"
+        let candidate = raw.contains("://") ? raw : "https://\(raw)"
         guard let inputURL = URL(string: candidate),
               let host = inputURL.host?.lowercased(),
               (host == "tiktok.com" || host.hasSuffix(".tiktok.com")),
@@ -234,7 +234,7 @@ struct AdminView: View {
             request.httpMethod = "POST"
             request.timeoutInterval = 45
             request.setValue("application/x-www-form-urlencoded; charset=UTF-8", forHTTPHeaderField: "Content-Type")
-            request.setValue("Nelly iOS app", forHTTPHeaderField: "User-Agent")
+            request.setValue("Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1", forHTTPHeaderField: "User-Agent")
             var form = URLComponents()
             form.queryItems = [URLQueryItem(name: "url", value: inputURL.absoluteString),
                                URLQueryItem(name: "hd", value: "1")]
@@ -277,7 +277,7 @@ struct AdminView: View {
             link = ""
         } catch {
             linkCheckIsError = true
-            linkCheckMessage = "Download failed: \\(error.localizedDescription)"
+            linkCheckMessage = "Download failed: \(error.localizedDescription)"
         }
     }
 
