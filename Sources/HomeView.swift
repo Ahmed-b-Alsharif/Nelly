@@ -43,6 +43,7 @@ struct HomeView: View {
         .sheet(isPresented: $showAdmin) { AdminView() }
         .onAppear {
             if !pinConfigured { showPIN = true }
+            resetFeedToBeginning()
         }
         .task {
             while !Task.isCancelled {
@@ -53,7 +54,11 @@ struct HomeView: View {
             }
         }
         .onChange(of: scenePhase) { _, phase in
-            if phase != .active { screenTime.setPlaying(false) }
+            if phase != .active {
+                screenTime.setPlaying(false)
+            } else {
+                resetFeedToBeginning()
+            }
         }
         .onChange(of: currentVideoID) { _, newID in
             if let item = library.activeVideos.first(where: { $0.id == newID }) {
@@ -76,10 +81,16 @@ struct HomeView: View {
                             VideoPlayerView(item: item, isPlaying: screenTime.isPlaying && currentVideoID == item.id && scenePhase == .active)
                                 .frame(width: geo.size.width, height: geo.size.height)
                                 .clipped()
-                            .contentShape(Rectangle())
-                            .onTapGesture {
-                                screenTime.setPlaying(!screenTime.isPlaying)
-                            }
+
+                            // TikTok-inspired visual chrome. These are presentation-only:
+                            // Nelly remains a private, parent-curated offline video player.
+                            feedChrome(for: item)
+                                .frame(width: geo.size.width, height: geo.size.height)
+                                .allowsHitTesting(false)
+                        }
+                        .contentShape(Rectangle())
+                        .onTapGesture {
+                            screenTime.setPlaying(!screenTime.isPlaying)
                         }
                         .containerRelativeFrame(.vertical)
                         .id(item.id)
@@ -90,9 +101,100 @@ struct HomeView: View {
             .scrollPosition(id: $currentVideoID)
             .scrollTargetBehavior(.paging)
             .scrollIndicators(.hidden)
-            .onAppear { if currentVideoID == nil { currentVideoID = library.activeVideos.first?.id } }
+            .onAppear {
+                if currentVideoID == nil {
+                    currentVideoID = library.activeVideos.first?.id
+                }
+            }
         }
         .ignoresSafeArea()
+    }
+
+    private func feedChrome(for item: VideoItem) -> some View {
+        VStack(spacing: 0) {
+            HStack(spacing: 10) {
+                Image(systemName: "chevron.left")
+                    .font(.system(size: 19, weight: .semibold))
+                HStack(spacing: 8) {
+                    Image(systemName: "magnifyingglass")
+                    Text("Search videos")
+                        .lineLimit(1)
+                    Spacer(minLength: 4)
+                    Rectangle()
+                        .fill(.white.opacity(0.55))
+                        .frame(width: 1, height: 22)
+                    Text("Search")
+                        .fontWeight(.semibold)
+                }
+                .font(.system(size: 16))
+                .padding(.horizontal, 13)
+                .frame(height: 48)
+                .background(.ultraThinMaterial.opacity(0.78), in: RoundedRectangle(cornerRadius: 16))
+                .overlay(RoundedRectangle(cornerRadius: 16).stroke(.white.opacity(0.8), lineWidth: 1))
+            }
+            .foregroundStyle(.white)
+            .padding(.horizontal, 16)
+            .padding(.top, 54)
+
+            Spacer()
+
+            HStack(alignment: .bottom, spacing: 12) {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Nelly • Parent's library")
+                        .font(.system(size: 15, weight: .semibold))
+                    Text(item.title?.isEmpty == false ? item.title! : "A video picked for you")
+                        .font(.system(size: 15))
+                        .lineLimit(2)
+                    Text("Saved videos • Watch offline")
+                        .font(.system(size: 13))
+                        .foregroundStyle(.white.opacity(0.88))
+                    HStack(spacing: 7) {
+                        Image(systemName: "magnifyingglass")
+                        Text("More videos in your library")
+                        Spacer()
+                        Image(systemName: "chevron.right")
+                    }
+                    .font(.system(size: 13, weight: .medium))
+                    .padding(.horizontal, 11)
+                    .frame(height: 38)
+                    .background(.black.opacity(0.34), in: RoundedRectangle(cornerRadius: 8))
+                    .padding(.top, 5)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+                VStack(spacing: 22) {
+                    feedAction("person.crop.circle.fill", label: "Parent")
+                    feedAction("heart.fill", label: "Like")
+                    feedAction("bubble.right.fill", label: "Comment")
+                    feedAction("bookmark.fill", label: "Save")
+                    feedAction("arrowshape.turn.up.right.fill", label: "Share")
+                }
+                .padding(.bottom, 8)
+            }
+            .foregroundStyle(.white)
+            .padding(.horizontal, 16)
+            .padding(.bottom, 34)
+            .background(
+                LinearGradient(colors: [.clear, .black.opacity(0.28), .black.opacity(0.48)],
+                               startPoint: .top, endPoint: .bottom)
+            )
+        }
+    }
+
+    private func feedAction(_ symbol: String, label: String) -> some View {
+        VStack(spacing: 4) {
+            Image(systemName: symbol)
+                .font(.system(size: 29, weight: .semibold))
+                .shadow(color: .black.opacity(0.35), radius: 3, y: 1)
+            Text(label)
+                .font(.system(size: 10, weight: .medium))
+                .shadow(color: .black.opacity(0.45), radius: 2, y: 1)
+        }
+    }
+
+    private func resetFeedToBeginning() {
+        currentVideoID = library.activeVideos.first?.id
+        screenTime.setPlaying(true)
     }
 
     private var emptyState: some View {
