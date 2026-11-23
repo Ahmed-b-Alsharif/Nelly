@@ -21,7 +21,8 @@ final class LibraryStore: ObservableObject {
 
     func addLink(_ raw: String) throws {
         guard let url = URL(string: raw.trimmingCharacters(in: .whitespacesAndNewlines)),
-              let host = url.host?.lowercased(), host.contains(".") else {
+              let host = url.host?.lowercased(), host.contains("."),
+              ["http", "https"].contains(url.scheme?.lowercased() ?? "") else {
             throw LibraryError.invalidLink
         }
         let kind: VideoKind
@@ -43,17 +44,17 @@ final class LibraryStore: ObservableObject {
         return try? documentsFolder().appendingPathComponent(item.value)
     }
 
-    func update(_ item: VideoItem, value: String, title: String, description: String) throws {
+    func update(_ item: VideoItem, value: String, title: String) throws {
         var updated = item
         if item.kind != .file {
             guard let url = URL(string: value.trimmingCharacters(in: .whitespacesAndNewlines)),
-                  let host = url.host, host.contains(".") else {
+                  let host = url.host, host.contains("."),
+                  ["http", "https"].contains(url.scheme?.lowercased() ?? "") else {
                 throw LibraryError.invalidLink
             }
             updated.value = url.absoluteString
         }
         updated.title = title.isEmpty ? nil : title
-        updated.description = description.isEmpty ? nil : description
         if let index = videos.firstIndex(where: { $0.id == item.id }) {
             videos[index] = updated
         }
