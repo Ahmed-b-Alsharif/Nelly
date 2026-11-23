@@ -3,6 +3,15 @@ import UIKit
 import PhotosUI
 import UniformTypeIdentifiers
 
+private struct ImportedMovie: Transferable {
+    let url: URL
+    static var transferRepresentation: some TransferRepresentation {
+        FileRepresentation(importedContentType: .movie) { received in
+            ImportedMovie(url: received.file)
+        }
+    }
+}
+
 struct AdminView: View {
     @EnvironmentObject private var library: LibraryStore
     @EnvironmentObject private var screenTime: ScreenTimeStore
@@ -39,12 +48,12 @@ struct AdminView: View {
                             message = "Please paste a valid TikTok link."
                             return
                         }
-                        message = "TikTok does not provide Nelly with an official direct-download service for ordinary video links. In TikTok, use Share → Save Video (if available), then import it below. Nelly will keep the saved copy offline."
+                        message = "In TikTok, use Share → Save Video (if available), then import the saved video below. Nelly stores the imported copy offline."
                     } label: {
                         Label("Check TikTok link", systemImage: "arrow.down.circle")
                     }
                     .disabled(link.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                    Text("For safety and reliability, Nelly won't scrape TikTok or use unofficial download services. A copied TikTok link alone cannot be guaranteed to provide the video file.")
+                    Text("A link by itself does not add a video. Nelly does not scrape TikTok or use unofficial download services.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                     PhotosPicker(selection: $selectedPhoto, matching: .videos) {
@@ -104,18 +113,13 @@ struct AdminView: View {
                 Section("Security") {
                     SecureField("New numeric PIN", text: $newPIN).keyboardType(.numberPad)
                     Button("Change PIN") {
-                        if newPIN.count >= 4 && newPIN.allSatisfy(\.isNumber) {
+                        if newPIN.count >= 4 && newPIN.count <= 12 && newPIN.allSatisfy(\.isNumber) {
                             adminPIN = newPIN
                             newPIN = ""
                             message = "PIN changed."
                         } else {
-                            message = "PIN must contain at least 4 digits."
+                            message = "PIN must contain 4 to 12 digits."
                         }
-                    }
-                    if adminPIN == "2468" {
-                        Text("Change the default PIN before giving Nelly to your daughter.")
-                            .font(.caption)
-                            .foregroundStyle(.orange)
                     }
                 }
 
@@ -140,27 +144,28 @@ struct AdminView: View {
                     let url = try result.get()
                     let access = url.startAccessingSecurityScopedResource()
                     defer { if access { url.stopAccessingSecurityScopedResource() } }
-                    let data = try Data(contentsOf: url)
-                    try library.importVideo(data: data, fileName: url.lastPathComponent)
+                    try library.importVideo(from: url, fileName: url.lastPathComponent)
                     message = "Video imported."
                 } catch {
                     message = "Could not import video: \(error.localizedDescription)"
                 }
             }
             .onChange(of: selectedPhoto) { _, item in
+                guard let item else { return }
                 Task {
-                    guard let item, let data = try? await item.loadTransferable(type: Data.self) else { return }
                     do {
-                        try library.importVideo(data: data, fileName: "Photos-video.mov")
+                        guard let movie = try await item.loadTransferable(type: ImportedMovie.self) else {
+                            throw LibraryError.invalidVideo
+                        }
+                        try library.importVideo(from: movie.url, fileName: movie.url.lastPathComponent)
                         message = "Video imported from Photos."
                     } catch {
-                        message = error.localizedDescription
+                        message = "Could not import video: \(error.localizedDescription)"
                     }
+                    selectedPhoto = nil
                 }
             }
-            .sheet(item: $editingVideo) { video in
-                VideoEditorView(video: video)
-            }
+            .sheet(item: $editingVideo) { video in VideoEditorView(video: video) }
             .sheet(isPresented: $showHistory) {
                 NavigationStack {
                     List(library.watchHistory, id: \.self) { entry in
@@ -212,23 +217,17 @@ private struct VideoEditorView: View {
                 Section("Private admin details") {
                     TextField("Optional title", text: $title)
                 }
-                if !errorMessage.isEmpty {
-                    Text(errorMessage).foregroundStyle(.red)
-                }
+                if !errorMessage.isEmpty { Text(errorMessage).foregroundStyle(.red) }
             }
             .navigationTitle("Edit video")
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { dismiss() }
-                }
+                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Save") {
                         do {
                             try library.update(video, value: value, title: title)
                             dismiss()
-                        } catch {
-                            errorMessage = error.localizedDescription
-                        }
+                        } catch { errorMessage = error.localizedDescription }
                     }
                 }
             }
