@@ -212,7 +212,7 @@ private struct EmbeddedWebView: UIViewRepresentable {
     let onUnavailable: () -> Void
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(onUnavailable: onUnavailable)
+        Coordinator(embedURL: url, onUnavailable: onUnavailable)
     }
 
     func makeUIView(context: Context) -> WKWebView {
@@ -257,18 +257,27 @@ private struct EmbeddedWebView: UIViewRepresentable {
     }
 
     final class Coordinator: NSObject, WKNavigationDelegate {
+        private let embedURL: URL
         var onUnavailable: () -> Void
 
-        init(onUnavailable: @escaping () -> Void) {
+        init(embedURL: URL, onUnavailable: @escaping () -> Void) {
+            self.embedURL = embedURL
             self.onUnavailable = onUnavailable
         }
 
         func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
-            onUnavailable()
+            reportFailureUnlessCancelled(error)
         }
 
         func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
-            onUnavailable()
+            reportFailureUnlessCancelled(error)
+        }
+
+        private func reportFailureUnlessCancelled(_ error: Error) {
+            let nsError = error as NSError
+            if nsError.code != NSURLErrorCancelled {
+                onUnavailable()
+            }
         }
 
         func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
@@ -302,11 +311,20 @@ private struct EmbeddedWebView: UIViewRepresentable {
                      decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
             // Only allow the embed's own HTTP(S) loading. Never follow user-activated links,
             // open new windows, or hand a URL to another app.
-            let scheme = navigationAction.request.url?.scheme?.lowercased() ?? ""
-            if navigationAction.navigationType == .linkActivated
-                || navigationAction.targetFrame == nil
-                || !["http", "https"].contains(scheme) {
+            guard let destination = navigationAction.request.url,
+                  ["http", "https"].contains(destination.scheme?.lowercased() ?? ""),
+                  navigationAction.navigationType != .linkActivated,
+                  let targetFrame = navigationAction.targetFrame else {
                 decisionHandler(.cancel)
+                return
+            }
+
+            // The main frame must remain on the original provider embed URL. This prevents
+            // redirects to a full TikTok/YouTube page, while allowing provider subframes.
+            if targetFrame.isMainFrame {
+                let sameEmbed = destination.host == embedURL.host
+                    && destination.path.hasPrefix(embedURL.path)
+                decisionHandler(sameEmbed ? .allow : .cancel)
             } else {
                 decisionHandler(.allow)
             }
