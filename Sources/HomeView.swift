@@ -79,7 +79,7 @@ struct HomeView: View {
             }
         }
         .onChange(of: library.videos) { _, _ in
-            Task { await syncManager.syncNow(library: library, screenTime: screenTime) }
+            Task { await syncManager.syncNow(library: library, screenTime: screenTime, pushLibraryMetadata: true) }
         }
         .onChange(of: currentVideoID) { oldID, newID in
             if let item = playbackVideos.first(where: { $0.id == newID }) {
