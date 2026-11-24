@@ -5,6 +5,7 @@ import AVFoundation
 struct NellyApp: App {
     @StateObject private var library = LibraryStore()
     @StateObject private var screenTime = ScreenTimeStore()
+    @StateObject private var syncManager = NellySyncManager()
     @AppStorage("nelly.theme.dark") private var darkMode = false
 
     init() {
@@ -18,6 +19,7 @@ struct NellyApp: App {
             HomeView()
                 .environmentObject(library)
                 .environmentObject(screenTime)
+                .environmentObject(syncManager)
                 .preferredColorScheme(darkMode ? .dark : .light)
         }
     }
