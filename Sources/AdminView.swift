@@ -243,7 +243,7 @@ struct AdminView: View {
                     .foregroundStyle(.secondary)
             } else if syncManager.isPaired {
                 Label("This iPhone is paired", systemImage: "checkmark.icloud")
-                Text("Family ID: \\(syncManager.familyID ?? "")")
+                Text("Family ID: \(syncManager.familyID ?? "")")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .textSelection(.enabled)
@@ -255,7 +255,7 @@ struct AdminView: View {
                             .font(.title2.monospaced().bold())
                             .textSelection(.enabled)
                         if let expiry = syncManager.pairingCodeExpiry {
-                            Text("Expires at \\(expiry.formatted(date: .omitted, time: .shortened))")
+                            Text("Expires at \(expiry.formatted(date: .omitted, time: .shortened))")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                         }
