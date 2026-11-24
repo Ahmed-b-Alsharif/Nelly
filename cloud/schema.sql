@@ -25,6 +25,8 @@ CREATE TABLE IF NOT EXISTS videos (
   family_id TEXT NOT NULL REFERENCES families(id) ON DELETE CASCADE,
   file_name TEXT NOT NULL,
   title TEXT NOT NULL DEFAULT '',
+  enabled INTEGER NOT NULL DEFAULT 1,
+  position INTEGER NOT NULL DEFAULT 0,
   byte_count INTEGER NOT NULL,
   chunk_count INTEGER NOT NULL,
   created_at INTEGER NOT NULL,
