@@ -46,6 +46,7 @@ struct AdminView: View {
     @State private var showBackupExporter = false
     @State private var showBackupImporter = false
     @State private var pairingCodeInput = ""
+    @State private var showUploadExistingConfirmation = false
     @State private var syncDeviceName = "Parent iPhone"
 
     var body: some View {
@@ -181,6 +182,14 @@ struct AdminView: View {
                 }
             }
             .navigationTitle("Nelly Admin")
+            .alert("Upload all existing videos?", isPresented: $showUploadExistingConfirmation) {
+                Button("Cancel", role: .cancel) {}
+                Button("Upload all") {
+                    Task { await syncManager.syncExistingLibrary(library: library, screenTime: screenTime) }
+                }
+            } message: {
+                Text("This uploads every existing local video from this iPhone to the temporary relay. Your local videos stay on this phone. Continue only after the one-video test has worked.")
+            }
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) { EditButton() }
                 ToolbarItem(placement: .topBarTrailing) { Button("Done") { dismiss() } }
@@ -271,6 +280,14 @@ struct AdminView: View {
                     Label("Sync now", systemImage: "arrow.triangle.2.circlepath")
                 }
                 .disabled(syncManager.isBusy)
+                Button {
+                    showUploadExistingConfirmation = true
+                } label: {
+                    Label("Upload all existing videos", systemImage: "icloud.and.arrow.up")
+                }
+                .disabled(syncManager.isBusy)
+                Text("Use this after the one-video test succeeds, on the iPhone that contains your original library. The other phone should receive those videos.")
+                    .font(.caption).foregroundStyle(.secondary)
                 if let synced = syncManager.lastSyncDate {
                     Text("Last synced: \\(synced.formatted(date: .abbreviated, time: .shortened))")
                         .font(.caption).foregroundStyle(.secondary)
