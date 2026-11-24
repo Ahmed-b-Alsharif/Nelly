@@ -146,6 +146,12 @@ final class NellySyncManager: ObservableObject {
         }
     }
 
+    func syncExistingLibrary(library: LibraryStore, screenTime: ScreenTimeStore) async {
+        UserDefaults.standard.removeObject(forKey: "nelly.sync.ignoredExistingIDs")
+        UserDefaults.standard.set(true, forKey: "nelly.sync.baselineCaptured")
+        await syncNow(library: library, screenTime: screenTime, pushLibraryMetadata: true)
+    }
+
     func disconnect() {
         deleteKeychainToken()
         deviceToken = nil
