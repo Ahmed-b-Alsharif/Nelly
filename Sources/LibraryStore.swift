@@ -49,7 +49,7 @@ final class LibraryStore: ObservableObject {
         videos.append(VideoItem(kind: .file, value: safeName))
     }
 
-    func importSyncedVideo(from sourceURL: URL, fileName: String, id: UUID, title: String) throws {
+    func importSyncedVideo(from sourceURL: URL, fileName: String, id: UUID, title: String, enabled: Bool = true) throws {
         guard !videos.contains(where: { $0.id == id }) else { return }
         let folder = try privateVideoFolder()
         let sourceName = (fileName as NSString).lastPathComponent
@@ -63,8 +63,32 @@ final class LibraryStore: ObservableObject {
             throw LibraryError.invalidVideo
         }
         try FileManager.default.copyItem(at: sourceURL, to: destination)
-        videos.append(VideoItem(id: id, kind: .file, value: safeName, enabled: true,
+        videos.append(VideoItem(id: id, kind: .file, value: safeName, enabled: enabled,
                                 addedAt: Date(), title: title.isEmpty ? nil : title))
+    }
+
+    func applySyncedMetadata(id: UUID, title: String, enabled: Bool) {
+        guard let index = videos.firstIndex(where: { $0.id == id }) else { return }
+        let cleanedTitle = title.isEmpty ? nil : title
+        guard videos[index].title != cleanedTitle || videos[index].enabled != enabled else { return }
+        videos[index].title = cleanedTitle
+        videos[index].enabled = enabled
+    }
+
+    func applySyncedOrder(_ orderedIDs: [UUID]) {
+        guard !orderedIDs.isEmpty else { return }
+        let idSet = Set(orderedIDs)
+        let orderedItems = orderedIDs.compactMap { id in videos.first(where: { $0.id == id }) }
+        guard !orderedItems.isEmpty else { return }
+        var result = videos
+        var nextIndex = 0
+        for index in result.indices where result[index].kind == .file && idSet.contains(result[index].id) {
+            if nextIndex < orderedItems.count {
+                result[index] = orderedItems[nextIndex]
+                nextIndex += 1
+            }
+        }
+        if result != videos { videos = result }
     }
 
     func localURL(for item: VideoItem) -> URL? {
