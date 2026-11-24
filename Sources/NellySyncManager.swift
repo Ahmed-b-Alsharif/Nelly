@@ -76,7 +76,7 @@ final class NellySyncManager: ObservableObject {
         } catch { statusMessage = error.localizedDescription }
     }
 
-    func syncNow(library: LibraryStore) async {
+    func syncNow(library: LibraryStore, screenTime: ScreenTimeStore? = nil) async {
         guard isConfigured, isPaired, !isBusy else { return }
         isBusy = true
         defer { isBusy = false }
@@ -105,6 +105,7 @@ final class NellySyncManager: ObservableObject {
                 }
                 try await downloadVideo(video, into: library)
             }
+            if let screenTime { try await syncScreenTime(screenTime) }
             lastSyncDate = Date()
             statusMessage = "Synced successfully."
         } catch {
@@ -180,6 +181,22 @@ final class NellySyncManager: ObservableObject {
             throw error
         }
         try? FileManager.default.removeItem(at: temp)
+    }
+
+    private func syncScreenTime(_ screenTime: ScreenTimeStore) async throws {
+        let remoteData = try await request(path: "/v1/settings", method: "GET")
+        let remote = try JSONDecoder().decode(RemoteSettings.self, from: remoteData)
+        screenTime.applySharedState(dailyLimit: remote.dailyLimit, usedSeconds: remote.usedSeconds,
+                                    usageDay: remote.usageDay, settingsUpdatedAt: remote.settingsUpdatedAt,
+                                    resetAt: remote.resetAt)
+        let payload: [String: Any] = [
+            "dailyLimit": screenTime.dailyLimit,
+            "usedSeconds": screenTime.usedSeconds,
+            "usageDay": screenTime.sharedUsageDay,
+            "settingsUpdatedAt": screenTime.sharedSettingsUpdatedAt,
+            "resetAt": screenTime.sharedResetAt
+        ]
+        _ = try await request(path: "/v1/settings", method: "PUT", body: try jsonData(payload))
     }
 
     private func acknowledge(_ videoID: String) async throws {
@@ -276,6 +293,13 @@ final class NellySyncManager: ObservableObject {
     private struct PairFamilyResponse: Decodable {
         let familyId: String
         let deviceToken: String
+    }
+    private struct RemoteSettings: Decodable {
+        let dailyLimit: Int
+        let usedSeconds: Int
+        let usageDay: String
+        let settingsUpdatedAt: Double
+        let resetAt: Double
     }
     private struct RemoteLibrary: Decodable {
         let videos: [RemoteVideo]
