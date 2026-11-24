@@ -96,7 +96,12 @@ final class ScreenTimeStore: ObservableObject {
         formatter.timeZone = TimeZone.current
         formatter.dateFormat = "yyyy-MM-dd"
         let today = formatter.string(from: Date())
-        if usageDay != today {
+        if usageDay.isEmpty {
+            // A newly paired phone must not treat its first local initialization
+            // as a parent reset that overrides the family's shared usage.
+            usageDay = today
+            usedSeconds = 0
+        } else if usageDay != today {
             usageDay = today
             usedSeconds = 0
             resetAt = Date().timeIntervalSince1970
