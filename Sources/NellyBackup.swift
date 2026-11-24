@@ -24,7 +24,7 @@ enum NellyBackupBuilder {
         let timestamp = ISO8601DateFormatter().string(from: Date())
             .replacingOccurrences(of: ":", with: "-")
         let backupFolder = fileManager.temporaryDirectory
-            .appendingPathComponent("Nelly-Backup-\\(timestamp)", isDirectory: true)
+            .appendingPathComponent("Nelly-Backup-\(timestamp)", isDirectory: true)
         let videosFolder = backupFolder.appendingPathComponent("Videos", isDirectory: true)
 
         try fileManager.createDirectory(at: videosFolder, withIntermediateDirectories: true)
@@ -61,7 +61,7 @@ enum NellyBackupBuilder {
 
                 backupFiles.append(NellyBackupFile(
                     videoID: item.id,
-                    relativePath: "Videos/\\(fileName)",
+                    relativePath: "Videos/\(fileName)",
                     byteCount: copiedSize
                 ))
             }
@@ -81,7 +81,9 @@ enum NellyBackupBuilder {
 
             // Verify the manifest and every copied file before presenting the export picker.
             let verifiedData = try Data(contentsOf: manifestURL)
-            _ = try JSONDecoder().decode(NellyBackupManifest.self, from: verifiedData)
+            let decoder = JSONDecoder()
+            decoder.dateDecodingStrategy = .iso8601
+            _ = try decoder.decode(NellyBackupManifest.self, from: verifiedData)
             guard backupFiles.count == videos.filter({ $0.kind == .file }).count else {
                 throw NellyBackupError.copyVerificationFailed("Video count")
             }
@@ -136,13 +138,13 @@ private enum NellyBackupError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .missingVideo(let name):
-            return "The video '\\(name)' is missing from this iPhone. No backup was exported."
+            return "The video '\(name)' is missing from this iPhone. No backup was exported."
         case .emptyVideo(let name):
-            return "The video '\\(name)' is empty. No backup was exported."
+            return "The video '\(name)' is empty. No backup was exported."
         case .invalidFileName:
             return "A video has an invalid or duplicate file name. No backup was exported."
         case .copyVerificationFailed(let name):
-            return "The copied file '\\(name)' did not pass verification. No backup was exported."
+            return "The copied file '\(name)' did not pass verification. No backup was exported."
         }
     }
 }
