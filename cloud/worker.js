@@ -72,10 +72,19 @@ async function handle(request, env) {
 
   if (url.pathname === "/v1/pair" && request.method === "POST") {
     const input = await bodyJSON(request);
+    const now = Math.floor(Date.now() / 1000);
+    const ipHash = await digest(request.headers.get("cf-connecting-ip") || "unknown");
+    await env.DB.prepare(
+      "INSERT INTO pair_attempts (ip_hash, window_started_at, attempts) VALUES (?, ?, 1) " +
+      "ON CONFLICT(ip_hash) DO UPDATE SET " +
+      "window_started_at = CASE WHEN excluded.window_started_at - pair_attempts.window_started_at >= 60 THEN excluded.window_started_at ELSE pair_attempts.window_started_at END, " +
+      "attempts = CASE WHEN excluded.window_started_at - pair_attempts.window_started_at >= 60 THEN 1 ELSE pair_attempts.attempts + 1 END"
+    ).bind(ipHash, now).run();
+    const rate = await env.DB.prepare("SELECT attempts FROM pair_attempts WHERE ip_hash = ?").bind(ipHash).first();
+    if ((rate?.attempts || 0) > 10) return json({ error: "pairing_rate_limited", retryAfterSeconds: 60 }, 429);
     const code = String(input?.pairingCode || "").trim().toUpperCase();
     const deviceName = String(input?.deviceName || "Parent iPhone").slice(0, 60);
     if (!/^[A-F0-9]{10}$/.test(code)) return json({ error: "invalid_pairing_code" }, 400);
-    const now = Math.floor(Date.now() / 1000);
     const codeHash = await digest(code);
     const invite = await env.DB.prepare(
       "SELECT family_id FROM pairing_codes WHERE code_hash = ? AND expires_at >= ? AND used_at IS NULL"
