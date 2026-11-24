@@ -102,7 +102,8 @@ async function handle(request, env) {
     const rows = await env.DB.prepare(
       "SELECT v.id, v.file_name AS fileName, v.title, v.byte_count AS byteCount, v.chunk_count AS chunkCount, v.created_at AS createdAt, v.relay_deleted AS relayDeleted, v.upload_complete AS uploadComplete, EXISTS(SELECT 1 FROM video_receipts r WHERE r.video_id = v.id AND r.device_id = ?) AS receivedByMe FROM videos v WHERE v.family_id = ? AND v.upload_complete = 1 ORDER BY v.created_at, v.id"
     ).bind(device.id, device.family_id).all();
-    return json({ familyId: device.family_id, deviceId: device.id, videos: rows.results || [] });
+    const videos = (rows.results || []).map(row => ({ ...row, receivedByMe: Boolean(row.receivedByMe), relayDeleted: Boolean(row.relayDeleted) }));
+    return json({ familyId: device.family_id, deviceId: device.id, videos });
   }
 
   const manifestMatch = url.pathname.match(/^\/v1\/videos\/([0-9a-fA-F-]{36})\/manifest$/);
