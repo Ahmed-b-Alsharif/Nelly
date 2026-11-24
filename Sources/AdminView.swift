@@ -41,6 +41,8 @@ struct AdminView: View {
     @State private var newPIN = ""
     @State private var showHistory = false
     @State private var editingVideo: VideoItem?
+    @State private var backupFolderURL: URL?
+    @State private var showBackupExporter = false
 
     var body: some View {
         NavigationStack {
@@ -101,6 +103,17 @@ struct AdminView: View {
                     if !message.isEmpty {
                         Text(message).font(.caption).foregroundStyle(.secondary)
                     }
+                }
+
+                Section("Backup your library") {
+                    Button {
+                        createLibraryBackup()
+                    } label: {
+                        Label("Export a full backup", systemImage: "externaldrive.fill")
+                    }
+                    Text("Copies every video and its library details into a separate folder that you can save in Files or another location. Your current Nelly videos are not moved or deleted.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                 }
 
                 Section("Your video library") {
@@ -191,6 +204,22 @@ struct AdminView: View {
                 Task { await importSelectedPhotos(items) }
             }
             .sheet(item: $editingVideo) { video in VideoEditorView(video: video) }
+            .sheet(isPresented: $showBackupExporter, onDismiss: {
+                if let folder = backupFolderURL {
+                    try? FileManager.default.removeItem(at: folder)
+                    backupFolderURL = nil
+                }
+            }) {
+                if let folder = backupFolderURL {
+                    NellyBackupDocumentPicker(folderURL: folder) { exported in
+                        message = exported
+                            ? "Backup exported. Your original Nelly library is unchanged."
+                            : "Backup export was cancelled. Your original Nelly library is unchanged."
+                        showBackupExporter = false
+                    }
+                    .ignoresSafeArea()
+                }
+            }
             .sheet(isPresented: $showHistory) {
                 NavigationStack {
                     List(library.watchHistory, id: \.self) { entry in
@@ -207,6 +236,20 @@ struct AdminView: View {
         }
     }
 
+
+    private func createLibraryBackup() {
+        do {
+            let folder = try NellyBackupBuilder.createBackup(
+                videos: library.videos,
+                resolveLocalURL: { library.localURL(for: $0) }
+            )
+            backupFolderURL = folder
+            message = "Backup prepared. Choose a location in Files to save it."
+            showBackupExporter = true
+        } catch {
+            message = "Could not create backup: \\(error.localizedDescription)"
+        }
+    }
 
     private func importSelectedPhotos(_ items: [PhotosPickerItem]) async {
         isImportingPhotos = true
