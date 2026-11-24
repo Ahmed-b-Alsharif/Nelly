@@ -248,7 +248,7 @@ struct AdminView: View {
                     .foregroundStyle(.secondary)
                     .textSelection(.enabled)
                 Button {
-                    Task { await syncManager.syncNow(library: library) }
+                    Task { await syncManager.syncNow(library: library, screenTime: screenTime) }
                 } label: {
                     Label("Sync now", systemImage: "arrow.triangle.2.circlepath")
                 }
@@ -283,7 +283,7 @@ struct AdminView: View {
                 Button {
                     Task {
                         await syncManager.createFamily(deviceName: syncDeviceName)
-                        await syncManager.syncNow(library: library)
+                        await syncManager.syncNow(library: library, screenTime: screenTime)
                     }
                 } label: {
                     Label("Create family and pairing code", systemImage: "person.2.badge.plus")
@@ -296,7 +296,7 @@ struct AdminView: View {
                 Button {
                     Task {
                         await syncManager.joinFamily(pairingCode: pairingCodeInput, deviceName: syncDeviceName)
-                        await syncManager.syncNow(library: library)
+                        await syncManager.syncNow(library: library, screenTime: screenTime)
                     }
                 } label: {
                     Label("Join existing family", systemImage: "link")
