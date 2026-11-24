@@ -31,7 +31,8 @@ CREATE TABLE IF NOT EXISTS videos (
   chunk_count INTEGER NOT NULL,
   created_at INTEGER NOT NULL,
   relay_deleted INTEGER NOT NULL DEFAULT 0,
-  upload_complete INTEGER NOT NULL DEFAULT 0
+  upload_complete INTEGER NOT NULL DEFAULT 0,
+  deleted INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS idx_videos_family ON videos(family_id, created_at);
 
