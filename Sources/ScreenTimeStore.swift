@@ -10,6 +10,7 @@ final class ScreenTimeStore: ObservableObject {
             let bounded = min(240, max(1, newValue))
             storedDailyLimit = bounded
             UserDefaults.standard.set(bounded, forKey: "nelly.dailyLimitMinutes")
+            settingsUpdatedAt = Date().timeIntervalSince1970
             if isLimitReached { isPlaying = false }
         }
     }
@@ -21,14 +22,25 @@ final class ScreenTimeStore: ObservableObject {
     private var usageDay: String {
         didSet { UserDefaults.standard.set(usageDay, forKey: "nelly.usageDay") }
     }
+    private var settingsUpdatedAt: Double {
+        didSet { UserDefaults.standard.set(settingsUpdatedAt, forKey: "nelly.settingsUpdatedAt") }
+    }
+    private var resetAt: Double {
+        didSet { UserDefaults.standard.set(resetAt, forKey: "nelly.screenTimeResetAt") }
+    }
 
     var remainingSeconds: Int { max(0, dailyLimit * 60 - usedSeconds) }
     var isLimitReached: Bool { remainingSeconds <= 0 }
+    var sharedUsageDay: String { usageDay }
+    var sharedSettingsUpdatedAt: Double { settingsUpdatedAt }
+    var sharedResetAt: Double { resetAt }
 
     init() {
         storedDailyLimit = min(240, max(1, UserDefaults.standard.object(forKey: "nelly.dailyLimitMinutes") as? Int ?? 45))
         usedSeconds = UserDefaults.standard.integer(forKey: "nelly.usedSeconds")
         usageDay = UserDefaults.standard.string(forKey: "nelly.usageDay") ?? ""
+        settingsUpdatedAt = UserDefaults.standard.double(forKey: "nelly.settingsUpdatedAt")
+        resetAt = UserDefaults.standard.double(forKey: "nelly.screenTimeResetAt")
         resetIfNewDay()
     }
 
@@ -40,8 +52,42 @@ final class ScreenTimeStore: ObservableObject {
     }
 
     func setPlaying(_ value: Bool) { isPlaying = value && !isLimitReached }
-    func parentOverride() { usedSeconds = 0; isPlaying = true }
-    func resetToday() { usedSeconds = 0; isPlaying = true }
+
+    func parentOverride() {
+        resetAt = Date().timeIntervalSince1970
+        usedSeconds = 0
+        isPlaying = true
+    }
+
+    func resetToday() {
+        resetAt = Date().timeIntervalSince1970
+        usedSeconds = 0
+        isPlaying = true
+    }
+
+    func applySharedState(dailyLimit remoteLimit: Int, usedSeconds remoteSeconds: Int,
+                          usageDay remoteDay: String, settingsUpdatedAt remoteUpdated: Double,
+                          resetAt remoteReset: Double) {
+        if remoteUpdated > settingsUpdatedAt {
+            storedDailyLimit = min(240, max(1, remoteLimit))
+            UserDefaults.standard.set(storedDailyLimit, forKey: "nelly.dailyLimitMinutes")
+            settingsUpdatedAt = remoteUpdated
+        }
+        guard !remoteDay.isEmpty else { return }
+        if remoteDay > usageDay {
+            usageDay = remoteDay
+            usedSeconds = max(0, remoteSeconds)
+            resetAt = remoteReset
+        } else if remoteDay == usageDay {
+            if remoteReset > resetAt {
+                resetAt = remoteReset
+                usedSeconds = max(0, remoteSeconds)
+            } else if remoteReset == resetAt {
+                usedSeconds = max(usedSeconds, max(0, remoteSeconds))
+            }
+        }
+        if isLimitReached { isPlaying = false }
+    }
 
     private func resetIfNewDay() {
         let formatter = DateFormatter()
@@ -53,6 +99,7 @@ final class ScreenTimeStore: ObservableObject {
         if usageDay != today {
             usageDay = today
             usedSeconds = 0
+            resetAt = Date().timeIntervalSince1970
         }
     }
 }
