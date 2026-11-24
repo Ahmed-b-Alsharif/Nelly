@@ -36,10 +36,13 @@ final class ScreenTimeStore: ObservableObject {
     var sharedResetAt: Double { resetAt }
 
     init() {
-        storedDailyLimit = min(240, max(1, UserDefaults.standard.object(forKey: "nelly.dailyLimitMinutes") as? Int ?? 45))
+        let savedLimit = UserDefaults.standard.object(forKey: "nelly.dailyLimitMinutes") as? Int
+        storedDailyLimit = min(240, max(1, savedLimit ?? 45))
         usedSeconds = UserDefaults.standard.integer(forKey: "nelly.usedSeconds")
         usageDay = UserDefaults.standard.string(forKey: "nelly.usageDay") ?? ""
-        settingsUpdatedAt = UserDefaults.standard.double(forKey: "nelly.settingsUpdatedAt")
+        let savedSettingsDate = UserDefaults.standard.double(forKey: "nelly.settingsUpdatedAt")
+        settingsUpdatedAt = savedSettingsDate > 0 ? savedSettingsDate : (savedLimit == nil ? 0 : Date().timeIntervalSince1970)
+        UserDefaults.standard.set(settingsUpdatedAt, forKey: "nelly.settingsUpdatedAt")
         resetAt = UserDefaults.standard.double(forKey: "nelly.screenTimeResetAt")
         resetIfNewDay()
     }
