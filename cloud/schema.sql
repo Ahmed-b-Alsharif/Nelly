@@ -51,3 +51,9 @@ CREATE TABLE IF NOT EXISTS family_settings (
   settings_updated_at REAL NOT NULL DEFAULT 0,
   reset_at REAL NOT NULL DEFAULT 0
 );
+
+CREATE TABLE IF NOT EXISTS pair_attempts (
+  ip_hash TEXT PRIMARY KEY,
+  window_started_at INTEGER NOT NULL,
+  attempts INTEGER NOT NULL DEFAULT 0
+);
