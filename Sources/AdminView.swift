@@ -247,6 +247,16 @@ struct AdminView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .textSelection(.enabled)
+                Button {
+                    Task { await syncManager.syncNow(library: library) }
+                } label: {
+                    Label("Sync now", systemImage: "arrow.triangle.2.circlepath")
+                }
+                .disabled(syncManager.isBusy)
+                if let synced = syncManager.lastSyncDate {
+                    Text("Last synced: \\(synced.formatted(date: .abbreviated, time: .shortened))")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
                 if let code = syncManager.pairingCode {
                     VStack(alignment: .leading, spacing: 6) {
                         Text("Pair the second iPhone with this one-time code")
@@ -271,7 +281,10 @@ struct AdminView: View {
                 TextField("Device name", text: $syncDeviceName)
                     .textInputAutocapitalization(.words)
                 Button {
-                    Task { await syncManager.createFamily(deviceName: syncDeviceName) }
+                    Task {
+                        await syncManager.createFamily(deviceName: syncDeviceName)
+                        await syncManager.syncNow(library: library)
+                    }
                 } label: {
                     Label("Create family and pairing code", systemImage: "person.2.badge.plus")
                 }
@@ -281,7 +294,10 @@ struct AdminView: View {
                     .textInputAutocapitalization(.characters)
                     .autocorrectionDisabled()
                 Button {
-                    Task { await syncManager.joinFamily(pairingCode: pairingCodeInput, deviceName: syncDeviceName) }
+                    Task {
+                        await syncManager.joinFamily(pairingCode: pairingCodeInput, deviceName: syncDeviceName)
+                        await syncManager.syncNow(library: library)
+                    }
                 } label: {
                     Label("Join existing family", systemImage: "link")
                 }
