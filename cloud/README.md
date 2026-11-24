@@ -43,8 +43,8 @@ Do not put Cloudflare API tokens, account secrets, or device tokens in this repo
 
 ## Current scope and limitations
 
-This milestone implements pairing and temporary video transfer. The iOS client syncs when Nelly opens, returns to the foreground, or the local library changes. It does not guarantee background transfer while the app is fully closed.
+This milestone implements pairing, temporary video transfer, shared video titles/enabled state/order/deletions, and shared daily screen-time settings. The iOS client syncs when Nelly opens, returns to the foreground, when the local library changes, and approximately every 30 seconds while open. It does not guarantee background transfer while the app is fully closed. The iOS app also supports merging a previously exported Nelly backup; duplicate IDs are skipped and existing files are not overwritten or deleted.
 
-Shared rename/reorder/enable/disable state, shared screen-time accounting, restore-from-backup, production abuse protection/rate limiting, and full two-device device testing are not yet complete. Do not treat the service as production-ready until those are implemented and tested.
+The parent PIN is still configured locally on each phone and is not automatically shared. Pairing brute-force protection and production abuse rate limiting are not yet implemented. The app has not yet passed a real two-iPhone end-to-end test. Do not treat the service as production-ready until these items are addressed and the transfer, metadata, screen-time and restore flows are tested.
 
 The 30-day TTL is a safety cleanup fallback: if the second phone remains offline longer than that, the temporary relay may expire. The original phone's local video remains safe.
