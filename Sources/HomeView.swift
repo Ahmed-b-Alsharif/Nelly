@@ -66,7 +66,7 @@ struct HomeView: View {
                         await syncManager.syncNow(library: library, screenTime: screenTime)
                     }
                 }
-                if scenePhase == .active && !showAdmin && !showPIN && !library.activeVideos.isEmpty {
+                if scenePhase == .active && !showAdmin && !showPIN && screenTime.isPlaying && !library.activeVideos.isEmpty {
                     screenTime.tick()
                 }
             }
