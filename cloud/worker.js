@@ -100,9 +100,9 @@ async function handle(request, env) {
 
   if (url.pathname === "/v1/library" && request.method === "GET") {
     const rows = await env.DB.prepare(
-      "SELECT v.id, v.file_name AS fileName, v.title, v.enabled, v.position, v.byte_count AS byteCount, v.chunk_count AS chunkCount, v.created_at AS createdAt, v.relay_deleted AS relayDeleted, v.upload_complete AS uploadComplete, EXISTS(SELECT 1 FROM video_receipts r WHERE r.video_id = v.id AND r.device_id = ?) AS receivedByMe FROM videos v WHERE v.family_id = ? AND v.upload_complete = 1 ORDER BY v.created_at, v.id"
+      "SELECT v.id, v.file_name AS fileName, v.title, v.enabled, v.position, v.byte_count AS byteCount, v.chunk_count AS chunkCount, v.created_at AS createdAt, v.relay_deleted AS relayDeleted, v.upload_complete AS uploadComplete, v.deleted AS isDeleted, EXISTS(SELECT 1 FROM video_receipts r WHERE r.video_id = v.id AND r.device_id = ?) AS receivedByMe FROM videos v WHERE v.family_id = ? AND v.upload_complete = 1 ORDER BY v.position, v.created_at, v.id"
     ).bind(device.id, device.family_id).all();
-    const videos = (rows.results || []).map(row => ({ ...row, enabled: Boolean(row.enabled), receivedByMe: Boolean(row.receivedByMe), relayDeleted: Boolean(row.relayDeleted) }));
+    const videos = (rows.results || []).map(row => ({ ...row, enabled: Boolean(row.enabled), receivedByMe: Boolean(row.receivedByMe), relayDeleted: Boolean(row.relayDeleted), isDeleted: Boolean(row.isDeleted) }));
     return json({ familyId: device.family_id, deviceId: device.id, videos });
   }
 
@@ -193,10 +193,22 @@ async function handle(request, env) {
       return json({ error: "invalid_video_position" }, 400);
     }
     const result = await env.DB.prepare(
-      "UPDATE videos SET title = ?, enabled = ?, position = ? WHERE id = ? AND family_id = ? AND upload_complete = 1"
+      "UPDATE videos SET title = ?, enabled = ?, position = ? WHERE id = ? AND family_id = ? AND upload_complete = 1 AND deleted = 0"
     ).bind(title, enabled, position, videoId, device.family_id).run();
     if (!result.meta?.changes) return json({ error: "video_not_found" }, 404);
     return json({ updated: true });
+  }
+
+  const deleteMatch = url.pathname.match(/^\\/v1\\/videos\\/([0-9a-fA-F-]{36})\\/delete$/);
+  if (deleteMatch && request.method === "POST") {
+    const videoId = deleteMatch[1];
+    const row = await env.DB.prepare("SELECT chunk_count FROM videos WHERE id = ? AND family_id = ? AND deleted = 0")
+      .bind(videoId, device.family_id).first();
+    if (!row) return json({ deleted: true });
+    await deleteRelay(env, device.family_id, videoId, row.chunk_count || 0);
+    await env.DB.prepare("UPDATE videos SET deleted = 1, relay_deleted = 1 WHERE id = ? AND family_id = ?")
+      .bind(videoId, device.family_id).run();
+    return json({ deleted: true });
   }
 
   const chunkMatch = url.pathname.match(/^\/v1\/videos\/([0-9a-fA-F-]{36})\/chunks\/(\d+)$/);
@@ -241,9 +253,9 @@ async function handle(request, env) {
   if (videoMatch && request.method === "GET") {
     const videoId = videoMatch[1];
     const index = Number(url.searchParams.get("chunk"));
-    const row = await env.DB.prepare("SELECT chunk_count, relay_deleted, upload_complete FROM videos WHERE id = ? AND family_id = ?")
+    const row = await env.DB.prepare("SELECT chunk_count, relay_deleted, upload_complete, deleted FROM videos WHERE id = ? AND family_id = ?")
       .bind(videoId, device.family_id).first();
-    if (!row || !row.upload_complete) return json({ error: "video_not_found" }, 404);
+    if (!row || !row.upload_complete || row.deleted) return json({ error: "video_not_found" }, 404);
     if (row.relay_deleted) return json({ error: "temporary_video_copy_already_cleared" }, 410);
     if (!Number.isInteger(index) || index < 0 || index >= row.chunk_count) return json({ error: "invalid_chunk_index" }, 400);
     const bytes = await env.RELAY.get(chunkKey(device.family_id, videoId, index), "arrayBuffer");
@@ -254,7 +266,7 @@ async function handle(request, env) {
   const ackMatch = url.pathname.match(/^\/v1\/videos\/([0-9a-fA-F-]{36})\/ack$/);
   if (ackMatch && request.method === "POST") {
     const videoId = ackMatch[1];
-    const row = await env.DB.prepare("SELECT chunk_count FROM videos WHERE id = ? AND family_id = ? AND relay_deleted = 0 AND upload_complete = 1")
+    const row = await env.DB.prepare("SELECT chunk_count FROM videos WHERE id = ? AND family_id = ? AND relay_deleted = 0 AND upload_complete = 1 AND deleted = 0")
       .bind(videoId, device.family_id).first();
     if (!row) return json({ error: "video_not_found_or_already_cleared" }, 404);
     const now = Math.floor(Date.now() / 1000);
