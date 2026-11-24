@@ -16,7 +16,8 @@ struct HomeView: View {
     @State private var pinError = ""
     @State private var currentVideoID: UUID?
     @State private var playbackVideos: [VideoItem] = []
-    @State private var loopVideoID: UUID?
+    @State private var headLoopVideoID: UUID?
+    @State private var tailLoopVideoID: UUID?
     @State private var showGrid = false
     @State private var limitPIN = ""
     @State private var limitPINError = ""
@@ -81,12 +82,19 @@ struct HomeView: View {
         .onChange(of: library.videos) { _, _ in
             Task { await syncManager.syncNow(library: library, screenTime: screenTime, pushLibraryMetadata: true) }
         }
-        .onChange(of: currentVideoID) { oldID, newID in
+        .onChange(of: currentVideoID) { _, newID in
+            if newID == headLoopVideoID {
+                // The duplicate first page at the top represents the last real video.
+                currentVideoID = playbackVideos.last?.id
+                return
+            }
+            if newID == tailLoopVideoID {
+                // The duplicate last page at the bottom represents the first real video.
+                currentVideoID = playbackVideos.first?.id
+                return
+            }
             if let item = playbackVideos.first(where: { $0.id == newID }) {
                 library.recordWatch(item)
-                if newID == loopVideoID {
-                    currentVideoID = playbackVideos.first?.id
-                }
             }
         }
         .onChange(of: library.activeVideos) { _, active in
@@ -97,11 +105,13 @@ struct HomeView: View {
     }
 
     private var feedVideos: [VideoItem] {
-        guard !playbackVideos.isEmpty, let first = playbackVideos.first,
-              let loopID = loopVideoID else { return playbackVideos }
-        var loopCopy = first
-        loopCopy.id = loopID
-        return playbackVideos + [loopCopy]
+        guard let first = playbackVideos.first, let last = playbackVideos.last,
+              let headID = headLoopVideoID, let tailID = tailLoopVideoID else { return playbackVideos }
+        var headCopy = last
+        headCopy.id = headID
+        var tailCopy = first
+        tailCopy.id = tailID
+        return [headCopy] + playbackVideos + [tailCopy]
     }
 
     private var feed: some View {
@@ -280,7 +290,8 @@ struct HomeView: View {
 
     private func prepareRandomPlayback() {
         playbackVideos = library.activeVideos.shuffled()
-        loopVideoID = playbackVideos.first.map { _ in UUID() }
+        headLoopVideoID = playbackVideos.first.map { _ in UUID() }
+        tailLoopVideoID = playbackVideos.first.map { _ in UUID() }
         currentVideoID = playbackVideos.first?.id
         screenTime.setPlaying(!screenTime.isLimitReached)
     }
