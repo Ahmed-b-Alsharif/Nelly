@@ -76,7 +76,7 @@ final class NellySyncManager: ObservableObject {
         } catch { statusMessage = error.localizedDescription }
     }
 
-    func syncNow(library: LibraryStore, screenTime: ScreenTimeStore? = nil) async {
+    func syncNow(library: LibraryStore, screenTime: ScreenTimeStore? = nil, pushLibraryMetadata: Bool = false) async {
         guard isConfigured, isPaired, !isBusy else { return }
         isBusy = true
         defer { isBusy = false }
@@ -93,9 +93,28 @@ final class NellySyncManager: ObservableObject {
                 guard !ignoredIDs.contains(item.id.uuidString) else { continue }
                 guard !remote.videos.contains(where: { $0.id == item.id.uuidString }) else { continue }
                 guard let fileURL = library.localURL(for: item) else { continue }
-                try await uploadVideo(item, from: fileURL)
+                try await uploadVideo(item, from: fileURL, position: library.videos.firstIndex(where: { $0.id == item.id }) ?? 0)
             }
             remote = try await fetchRemoteLibrary()
+            if pushLibraryMetadata {
+                for video in remote.videos {
+                    guard let id = UUID(uuidString: video.id),
+                          let local = library.videos.first(where: { $0.id == id }) else { continue }
+                    let position = library.videos.firstIndex(where: { $0.id == id }) ?? video.position
+                    let metadata: [String: Any] = [
+                        "title": local.title ?? "", "enabled": local.enabled, "position": position
+                    ]
+                    _ = try await request(path: "/v1/videos/\(video.id)/meta", method: "PUT",
+                                          body: try jsonData(metadata))
+                }
+            } else {
+                for video in remote.videos {
+                    guard let id = UUID(uuidString: video.id) else { continue }
+                    library.applySyncedMetadata(id: id, title: video.title, enabled: video.enabled)
+                }
+                library.applySyncedOrder(remote.videos.sorted { $0.position < $1.position }
+                    .compactMap { UUID(uuidString: $0.id) })
+            }
             for video in remote.videos where !video.receivedByMe && !video.relayDeleted {
                 if let id = UUID(uuidString: video.id),
                    let existing = library.videos.first(where: { $0.id == id }),
@@ -127,7 +146,7 @@ final class NellySyncManager: ObservableObject {
         statusMessage = "Disconnected on this iPhone. Local videos are unchanged."
     }
 
-    private func uploadVideo(_ item: VideoItem, from url: URL) async throws {
+    private func uploadVideo(_ item: VideoItem, from url: URL, position: Int) async throws {
         let values = try url.resourceValues(forKeys: [.fileSizeKey])
         guard let size = values.fileSize, size > 0, size <= maxVideoBytes else {
             throw SyncError.videoTooLarge
@@ -135,7 +154,8 @@ final class NellySyncManager: ObservableObject {
         let count = Int(ceil(Double(size) / Double(chunkBytes)))
         let manifest: [String: Any] = [
             "byteCount": size, "chunkCount": count,
-            "fileName": url.lastPathComponent, "title": item.title ?? ""
+            "fileName": url.lastPathComponent, "title": item.title ?? "",
+            "enabled": item.enabled, "position": position
         ]
         _ = try await request(path: "/v1/videos/\(item.id.uuidString)/manifest", method: "POST",
                               body: try jsonData(manifest))
@@ -174,7 +194,7 @@ final class NellySyncManager: ObservableObject {
             guard received == video.byteCount else { throw SyncError.incompleteDownload }
             guard let id = UUID(uuidString: video.id) else { throw SyncError.invalidManifest }
             try library.importSyncedVideo(from: temp, fileName: video.fileName,
-                                          id: id, title: video.title)
+                                          id: id, title: video.title, enabled: video.enabled)
             try await acknowledge(video.id)
         } catch {
             try? FileManager.default.removeItem(at: temp)
@@ -308,6 +328,8 @@ final class NellySyncManager: ObservableObject {
         let id: String
         let fileName: String
         let title: String
+        let enabled: Bool
+        let position: Int
         let byteCount: Int
         let chunkCount: Int
         let relayDeleted: Bool
