@@ -39,3 +39,12 @@ CREATE TABLE IF NOT EXISTS video_receipts (
   received_at INTEGER NOT NULL,
   PRIMARY KEY (video_id, device_id)
 );
+
+CREATE TABLE IF NOT EXISTS family_settings (
+  family_id TEXT PRIMARY KEY REFERENCES families(id) ON DELETE CASCADE,
+  daily_limit INTEGER NOT NULL DEFAULT 45,
+  used_seconds INTEGER NOT NULL DEFAULT 0,
+  usage_day TEXT NOT NULL DEFAULT '',
+  settings_updated_at REAL NOT NULL DEFAULT 0,
+  reset_at REAL NOT NULL DEFAULT 0
+);
