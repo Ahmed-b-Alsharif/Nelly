@@ -44,6 +44,7 @@ struct AdminView: View {
     @State private var editingVideo: VideoItem?
     @State private var backupFolderURL: URL?
     @State private var showBackupExporter = false
+    @State private var showBackupImporter = false
     @State private var pairingCodeInput = ""
     @State private var syncDeviceName = "Parent iPhone"
 
@@ -184,6 +185,20 @@ struct AdminView: View {
                 ToolbarItem(placement: .topBarLeading) { EditButton() }
                 ToolbarItem(placement: .topBarTrailing) { Button("Done") { dismiss() } }
             }
+            .fileImporter(isPresented: $showBackupImporter, allowedContentTypes: [.folder], allowsMultipleSelection: false) { result in
+                do {
+                    let urls = try result.get()
+                    guard let folder = urls.first else { return }
+                    let access = folder.startAccessingSecurityScopedResource()
+                    defer { if access { folder.stopAccessingSecurityScopedResource() } }
+                    let restored = try NellyBackupRestorer.restore(from: folder, into: library)
+                    message = restored == 0
+                        ? "All items from this backup are already in your library."
+                        : "Restored \(restored) item(s). Existing videos were kept unchanged."
+                } catch {
+                    message = "Restore failed: \(error.localizedDescription)"
+                }
+            }
             .fileImporter(isPresented: $showImporter, allowedContentTypes: [.movie, .mpeg4Movie, .video]) { result in
                 do {
                     let url = try result.get()
@@ -315,7 +330,12 @@ struct AdminView: View {
             Button(action: createLibraryBackup) {
                 Label("Export a full backup", systemImage: "externaldrive.fill")
             }
-            Text("Copies every video and its library details into a separate folder that you can save in Files or another location. Your current Nelly videos are not moved or deleted.")
+            Button {
+                showBackupImporter = true
+            } label: {
+                Label("Restore / upload a backup", systemImage: "arrow.down.doc")
+            }
+            Text("Export saves a separate copy. Restore merges items from a saved Nelly backup, skips duplicate IDs, and never replaces or deletes existing videos.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }
