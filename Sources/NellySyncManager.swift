@@ -4,10 +4,11 @@ import Security
 
 @MainActor
 final class NellySyncManager: ObservableObject {
-    // Set this to the deployed Nelly Worker URL after the free Cloudflare
-    // D1 database and R2 bucket have been created.
+    // Replace this with the deployed Worker URL after Cloudflare's Git deployment.
     private let serviceURL = "https://REPLACE-WITH-NELLY-WORKER.workers.dev"
     private let keychainService = "com.ahmedalsharif.nelly.sync"
+    private let chunkBytes = 4 * 1024 * 1024
+    private let maxVideoBytes = 100 * 1024 * 1024
 
     @Published private(set) var familyID: String?
     @Published private(set) var deviceName: String?
@@ -15,16 +16,12 @@ final class NellySyncManager: ObservableObject {
     @Published private(set) var pairingCodeExpiry: Date?
     @Published private(set) var statusMessage = "Not connected"
     @Published private(set) var isBusy = false
+    @Published private(set) var lastSyncDate: Date?
 
     private var deviceToken: String?
 
-    var isConfigured: Bool {
-        !serviceURL.contains("REPLACE-WITH")
-    }
-
-    var isPaired: Bool {
-        familyID != nil && deviceToken != nil
-    }
+    var isConfigured: Bool { !serviceURL.contains("REPLACE-WITH") }
+    var isPaired: Bool { familyID != nil && deviceToken != nil }
 
     init() {
         familyID = UserDefaults.standard.string(forKey: "nelly.sync.familyID")
@@ -43,25 +40,19 @@ final class NellySyncManager: ObservableObject {
             statusMessage = "The free sync server must be deployed before pairing."
             return
         }
-        await performRequest(path: "/v1/families", body: ["deviceName": deviceName]) { [weak self] data in
-            guard let self,
-                  let response = try? JSONDecoder().decode(CreateFamilyResponse.self, from: data) else {
-                self?.statusMessage = "The server returned an invalid response."
-                return
-            }
-            do {
-                try self.saveToken(response.deviceToken)
-                self.familyID = response.familyId
-                self.deviceName = deviceName
-                self.pairingCode = response.pairingCode
-                self.pairingCodeExpiry = Date(timeIntervalSince1970: TimeInterval(response.pairingCodeExpiresAt))
-                UserDefaults.standard.set(response.familyId, forKey: "nelly.sync.familyID")
-                UserDefaults.standard.set(deviceName, forKey: "nelly.sync.deviceName")
-                self.statusMessage = "Family created. Enter this code on the second iPhone."
-            } catch {
-                self.statusMessage = "Could not securely save the pairing key. Please try again."
-            }
-        }
+        do {
+            let data = try await request(path: "/v1/families", method: "POST",
+                                         body: try jsonData(["deviceName": deviceName]))
+            let response = try JSONDecoder().decode(CreateFamilyResponse.self, from: data)
+            try saveToken(response.deviceToken)
+            familyID = response.familyId
+            self.deviceName = deviceName
+            pairingCode = response.pairingCode
+            pairingCodeExpiry = Date(timeIntervalSince1970: TimeInterval(response.pairingCodeExpiresAt))
+            UserDefaults.standard.set(response.familyId, forKey: "nelly.sync.familyID")
+            UserDefaults.standard.set(deviceName, forKey: "nelly.sync.deviceName")
+            statusMessage = "Family created. Enter this code on the second iPhone."
+        } catch { statusMessage = error.localizedDescription }
     }
 
     func joinFamily(pairingCode: String, deviceName: String) async {
@@ -69,27 +60,48 @@ final class NellySyncManager: ObservableObject {
             statusMessage = "The free sync server must be deployed before pairing."
             return
         }
-        await performRequest(path: "/v1/pair", body: [
-            "pairingCode": pairingCode.trimmingCharacters(in: .whitespacesAndNewlines).uppercased(),
-            "deviceName": deviceName
-        ]) { [weak self] data in
-            guard let self,
-                  let response = try? JSONDecoder().decode(PairFamilyResponse.self, from: data) else {
-                self?.statusMessage = "Pairing failed. Check the code and try again."
-                return
+        do {
+            let data = try await request(path: "/v1/pair", method: "POST",
+                                         body: try jsonData(["pairingCode": pairingCode.trimmingCharacters(in: .whitespacesAndNewlines).uppercased(),
+                                                             "deviceName": deviceName]))
+            let response = try JSONDecoder().decode(PairFamilyResponse.self, from: data)
+            try saveToken(response.deviceToken)
+            familyID = response.familyId
+            self.deviceName = deviceName
+            self.pairingCode = nil
+            pairingCodeExpiry = nil
+            UserDefaults.standard.set(response.familyId, forKey: "nelly.sync.familyID")
+            UserDefaults.standard.set(deviceName, forKey: "nelly.sync.deviceName")
+            statusMessage = "This iPhone is paired successfully."
+        } catch { statusMessage = error.localizedDescription }
+    }
+
+    func syncNow(library: LibraryStore) async {
+        guard isConfigured, isPaired, !isBusy else { return }
+        isBusy = true
+        defer { isBusy = false }
+        statusMessage = "Checking the shared library…"
+        do {
+            var remote = try await fetchRemoteLibrary()
+            for item in library.videos where item.kind == .file {
+                guard !remote.videos.contains(where: { $0.id == item.id.uuidString }) else { continue }
+                guard let fileURL = library.localURL(for: item) else { continue }
+                try await uploadVideo(item, from: fileURL)
             }
-            do {
-                try self.saveToken(response.deviceToken)
-                self.familyID = response.familyId
-                self.deviceName = deviceName
-                self.pairingCode = nil
-                self.pairingCodeExpiry = nil
-                UserDefaults.standard.set(response.familyId, forKey: "nelly.sync.familyID")
-                UserDefaults.standard.set(deviceName, forKey: "nelly.sync.deviceName")
-                self.statusMessage = "This iPhone is paired successfully."
-            } catch {
-                self.statusMessage = "Could not securely save the pairing key. Please try again."
+            remote = try await fetchRemoteLibrary()
+            for video in remote.videos where !video.receivedByMe && !video.relayDeleted {
+                if let id = UUID(uuidString: video.id),
+                   let existing = library.videos.first(where: { $0.id == id }),
+                   library.localURL(for: existing) != nil {
+                    try await acknowledge(video.id)
+                    continue
+                }
+                try await downloadVideo(video, into: library)
             }
+            lastSyncDate = Date()
+            statusMessage = "Synced successfully."
+        } catch {
+            statusMessage = "Sync paused: \(error.localizedDescription). Your local videos are safe."
         }
     }
 
@@ -102,36 +114,110 @@ final class NellySyncManager: ObservableObject {
         pairingCodeExpiry = nil
         UserDefaults.standard.removeObject(forKey: "nelly.sync.familyID")
         UserDefaults.standard.removeObject(forKey: "nelly.sync.deviceName")
-        statusMessage = "Disconnected on this iPhone. The other iPhone is not changed."
+        statusMessage = "Disconnected on this iPhone. Local videos are unchanged."
     }
 
-    private func performRequest(
-        path: String,
-        body: [String: String],
-        completion: @escaping (Data) -> Void
-    ) async {
-        guard let base = URL(string: serviceURL),
-              let url = URL(string: path, relativeTo: base) else {
-            statusMessage = "The sync server address is not configured."
-            return
+    private func uploadVideo(_ item: VideoItem, from url: URL) async throws {
+        let values = try url.resourceValues(forKeys: [.fileSizeKey])
+        guard let size = values.fileSize, size > 0, size <= maxVideoBytes else {
+            throw SyncError.videoTooLarge
         }
-        isBusy = true
-        defer { isBusy = false }
+        let count = Int(ceil(Double(size) / Double(chunkBytes)))
+        let manifest: [String: Any] = [
+            "byteCount": size, "chunkCount": count,
+            "fileName": url.lastPathComponent, "title": item.title ?? ""
+        ]
+        _ = try await request(path: "/v1/videos/\(item.id.uuidString)/manifest", method: "POST",
+                              body: try jsonData(manifest))
+        let handle = try FileHandle(forReadingFrom: url)
+        defer { try? handle.close() }
+        for index in 0..<count {
+            try Task.checkCancellation()
+            let data = try handle.read(upToCount: chunkBytes) ?? Data()
+            guard !data.isEmpty else { throw SyncError.fileReadFailed }
+            _ = try await request(path: "/v1/videos/\(item.id.uuidString)/chunks/\(index)",
+                                  method: "PUT", body: data, contentType: "application/octet-stream")
+        }
+        _ = try await request(path: "/v1/videos/\(item.id.uuidString)/complete", method: "POST",
+                              body: Data("{}".utf8))
+    }
+
+    private func downloadVideo(_ video: RemoteVideo, into library: LibraryStore) async throws {
+        guard video.byteCount > 0, video.byteCount <= maxVideoBytes,
+              video.chunkCount > 0, video.chunkCount <= 25 else { throw SyncError.invalidManifest }
+        let temp = FileManager.default.temporaryDirectory
+            .appendingPathComponent("Nelly-sync-\(UUID().uuidString).mp4")
+        guard FileManager.default.createFile(atPath: temp.path, contents: nil) else {
+            throw SyncError.fileWriteFailed
+        }
+        let handle = try FileHandle(forWritingTo: temp)
+        defer { try? handle.close() }
+        var received = 0
         do {
-            var request = URLRequest(url: url)
-            request.httpMethod = "POST"
-            request.timeoutInterval = 20
-            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-            request.httpBody = try JSONSerialization.data(withJSONObject: body)
-            let (data, response) = try await URLSession.shared.data(for: request)
-            guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else {
-                statusMessage = "Could not connect or the pairing code was rejected."
-                return
+            for index in 0..<video.chunkCount {
+                try Task.checkCancellation()
+                let data = try await request(path: "/v1/videos/\(video.id)?chunk=\(index)", method: "GET")
+                try handle.write(contentsOf: data)
+                received += data.count
             }
-            completion(data)
+            try handle.synchronize()
+            guard received == video.byteCount else { throw SyncError.incompleteDownload }
+            guard let id = UUID(uuidString: video.id) else { throw SyncError.invalidManifest }
+            try library.importSyncedVideo(from: temp, fileName: video.fileName,
+                                          id: id, title: video.title)
+            try await acknowledge(video.id)
         } catch {
-            statusMessage = "Could not reach the sync server. Check the internet connection."
+            try? FileManager.default.removeItem(at: temp)
+            throw error
         }
+        try? FileManager.default.removeItem(at: temp)
+    }
+
+    private func acknowledge(_ videoID: String) async throws {
+        _ = try await request(path: "/v1/videos/\(videoID)/ack", method: "POST", body: Data("{}".utf8))
+    }
+
+    private func fetchRemoteLibrary() async throws -> RemoteLibrary {
+        let data = try await request(path: "/v1/library", method: "GET")
+        return try JSONDecoder().decode(RemoteLibrary.self, from: data)
+    }
+
+    private func request(path: String, method: String, body: Data? = nil,
+                         contentType: String = "application/json") async throws -> Data {
+        guard let base = URL(string: serviceURL),
+              let url = URL(string: path, relativeTo: base) else { throw SyncError.notConfigured }
+        guard let token = deviceToken, path != "/v1/families", path != "/v1/pair" else {
+            return try await unauthenticatedRequest(url: url, method: method, body: body, contentType: contentType)
+        }
+        var request = URLRequest(url: url)
+        request.httpMethod = method
+        request.timeoutInterval = 120
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        request.setValue(contentType, forHTTPHeaderField: "Content-Type")
+        request.httpBody = body
+        let (data, response) = try await URLSession.shared.data(for: request)
+        guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else {
+            throw SyncError.serverRejected((response as? HTTPURLResponse)?.statusCode ?? 0)
+        }
+        return data
+    }
+
+    private func unauthenticatedRequest(url: URL, method: String, body: Data?,
+                                        contentType: String) async throws -> Data {
+        var request = URLRequest(url: url)
+        request.httpMethod = method
+        request.timeoutInterval = 30
+        request.setValue(contentType, forHTTPHeaderField: "Content-Type")
+        request.httpBody = body
+        let (data, response) = try await URLSession.shared.data(for: request)
+        guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else {
+            throw SyncError.serverRejected((response as? HTTPURLResponse)?.statusCode ?? 0)
+        }
+        return data
+    }
+
+    private func jsonData(_ object: Any) throws -> Data {
+        try JSONSerialization.data(withJSONObject: object)
     }
 
     private func saveToken(_ token: String) throws {
@@ -145,7 +231,7 @@ final class NellySyncManager: ObservableObject {
         ]
         SecItemDelete(query as CFDictionary)
         let status = SecItemAdd(query as CFDictionary, nil)
-        guard status == errSecSuccess else { throw KeychainError.saveFailed }
+        guard status == errSecSuccess else { throw SyncError.keychainSaveFailed }
         deviceToken = token
     }
 
@@ -178,13 +264,37 @@ final class NellySyncManager: ObservableObject {
         let pairingCode: String
         let pairingCodeExpiresAt: Int
     }
-
     private struct PairFamilyResponse: Decodable {
         let familyId: String
         let deviceToken: String
     }
-
-    private enum KeychainError: Error {
-        case saveFailed
+    private struct RemoteLibrary: Decodable {
+        let videos: [RemoteVideo]
+    }
+    private struct RemoteVideo: Decodable {
+        let id: String
+        let fileName: String
+        let title: String
+        let byteCount: Int
+        let chunkCount: Int
+        let relayDeleted: Bool
+        let receivedByMe: Bool
+    }
+    private enum SyncError: LocalizedError {
+        case notConfigured, videoTooLarge, fileReadFailed, fileWriteFailed
+        case invalidManifest, incompleteDownload, keychainSaveFailed
+        case serverRejected(Int)
+        var errorDescription: String? {
+            switch self {
+            case .notConfigured: return "The sync server address is not configured"
+            case .videoTooLarge: return "This video is larger than the 100 MB test limit"
+            case .fileReadFailed: return "Could not read the local video"
+            case .fileWriteFailed: return "Could not create a temporary video file"
+            case .invalidManifest: return "The server returned invalid video details"
+            case .incompleteDownload: return "The downloaded video was incomplete"
+            case .keychainSaveFailed: return "Could not securely save the pairing key"
+            case .serverRejected(let code): return "The sync server returned HTTP \(code)"
+            }
+        }
     }
 }
