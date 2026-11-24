@@ -49,6 +49,24 @@ final class LibraryStore: ObservableObject {
         videos.append(VideoItem(kind: .file, value: safeName))
     }
 
+    func importSyncedVideo(from sourceURL: URL, fileName: String, id: UUID, title: String) throws {
+        guard !videos.contains(where: { $0.id == id }) else { return }
+        let folder = try privateVideoFolder()
+        let sourceName = (fileName as NSString).lastPathComponent
+        let ext = (sourceName as NSString).pathExtension
+        let base = (sourceName as NSString).deletingPathExtension
+        let safeBase = base.isEmpty ? "Video" : base
+        let safeName = UUID().uuidString + "-" + safeBase + (ext.isEmpty ? "" : ".\(ext)")
+        let destination = folder.appendingPathComponent(safeName, isDirectory: false)
+        let values = try sourceURL.resourceValues(forKeys: [.isRegularFileKey, .fileSizeKey])
+        guard values.isRegularFile == true, (values.fileSize ?? 0) > 0 else {
+            throw LibraryError.invalidVideo
+        }
+        try FileManager.default.copyItem(at: sourceURL, to: destination)
+        videos.append(VideoItem(id: id, kind: .file, value: safeName, enabled: true,
+                                addedAt: Date(), title: title.isEmpty ? nil : title))
+    }
+
     func localURL(for item: VideoItem) -> URL? {
         guard item.kind == .file else { return nil }
         guard let folder = try? privateVideoFolder() else { return nil }
