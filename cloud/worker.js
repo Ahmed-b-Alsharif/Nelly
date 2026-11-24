@@ -106,6 +106,41 @@ async function handle(request, env) {
     return json({ familyId: device.family_id, deviceId: device.id, videos });
   }
 
+  if (url.pathname === "/v1/settings" && request.method === "GET") {
+    const row = await env.DB.prepare(
+      "SELECT daily_limit AS dailyLimit, used_seconds AS usedSeconds, usage_day AS usageDay, settings_updated_at AS settingsUpdatedAt, reset_at AS resetAt FROM family_settings WHERE family_id = ?"
+    ).bind(device.family_id).first();
+    return json(row || { dailyLimit: 45, usedSeconds: 0, usageDay: "", settingsUpdatedAt: 0, resetAt: 0 });
+  }
+
+  if (url.pathname === "/v1/settings" && request.method === "PUT") {
+    const input = await bodyJSON(request);
+    const dailyLimit = Number(input?.dailyLimit);
+    const usedSeconds = Number(input?.usedSeconds);
+    const usageDay = String(input?.usageDay || "");
+    const settingsUpdatedAt = Number(input?.settingsUpdatedAt || 0);
+    const resetAt = Number(input?.resetAt || 0);
+    if (!Number.isInteger(dailyLimit) || dailyLimit < 1 || dailyLimit > 240 ||
+        !Number.isInteger(usedSeconds) || usedSeconds < 0 || usedSeconds > 14400 ||
+        !/^\\d{4}-\\d{2}-\\d{2}$/.test(usageDay) ||
+        !Number.isFinite(settingsUpdatedAt) || !Number.isFinite(resetAt)) {
+      return json({ error: "invalid_shared_settings" }, 400);
+    }
+    await env.DB.prepare(
+      "INSERT INTO family_settings (family_id, daily_limit, used_seconds, usage_day, settings_updated_at, reset_at) VALUES (?, ?, ?, ?, ?, ?) " +
+      "ON CONFLICT(family_id) DO UPDATE SET " +
+      "daily_limit = CASE WHEN excluded.settings_updated_at >= family_settings.settings_updated_at THEN excluded.daily_limit ELSE family_settings.daily_limit END, " +
+      "settings_updated_at = MAX(family_settings.settings_updated_at, excluded.settings_updated_at), " +
+      "used_seconds = CASE WHEN excluded.usage_day > family_settings.usage_day THEN excluded.used_seconds WHEN excluded.usage_day < family_settings.usage_day THEN family_settings.used_seconds WHEN excluded.reset_at > family_settings.reset_at THEN excluded.used_seconds ELSE MAX(family_settings.used_seconds, excluded.used_seconds) END, " +
+      "usage_day = MAX(family_settings.usage_day, excluded.usage_day), " +
+      "reset_at = CASE WHEN excluded.usage_day > family_settings.usage_day OR excluded.reset_at > family_settings.reset_at THEN excluded.reset_at ELSE family_settings.reset_at END"
+    ).bind(device.family_id, dailyLimit, usedSeconds, usageDay, settingsUpdatedAt, resetAt).run();
+    const saved = await env.DB.prepare(
+      "SELECT daily_limit AS dailyLimit, used_seconds AS usedSeconds, usage_day AS usageDay, settings_updated_at AS settingsUpdatedAt, reset_at AS resetAt FROM family_settings WHERE family_id = ?"
+    ).bind(device.family_id).first();
+    return json(saved);
+  }
+
   const manifestMatch = url.pathname.match(/^\/v1\/videos\/([0-9a-fA-F-]{36})\/manifest$/);
   if (manifestMatch && request.method === "POST") {
     const videoId = manifestMatch[1];
