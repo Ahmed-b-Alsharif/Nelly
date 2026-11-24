@@ -258,6 +258,9 @@ struct AdminView: View {
                     .foregroundStyle(.secondary)
             } else if syncManager.isPaired {
                 Label("This iPhone is paired", systemImage: "checkmark.icloud")
+                Text("Only videos added after pairing will upload during the first test. Each test video can be up to 100 MB. Temporary cloud copies are removed after both phones receive them, with a 30-day expiry as a fallback.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
                 Text("Family ID: \(syncManager.familyID ?? "")")
                     .font(.caption)
                     .foregroundStyle(.secondary)
