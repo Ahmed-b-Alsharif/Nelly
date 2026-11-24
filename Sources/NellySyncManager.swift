@@ -100,7 +100,8 @@ final class NellySyncManager: ObservableObject {
                 for video in remote.videos where !video.isDeleted {
                     guard let id = UUID(uuidString: video.id),
                           let local = library.videos.first(where: { $0.id == id }) else {
-                        if !video.isDeleted {
+                        // A peer's video that this phone has not downloaded yet is pending, not deleted.
+                        if video.receivedByMe {
                             _ = try await request(path: "/v1/videos/\(video.id)/delete", method: "POST", body: Data("{}".utf8))
                         }
                         continue
