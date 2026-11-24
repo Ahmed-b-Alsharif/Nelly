@@ -5,7 +5,7 @@ import Security
 @MainActor
 final class NellySyncManager: ObservableObject {
     // Replace this with the deployed Worker URL after Cloudflare's Git deployment.
-    private let serviceURL = "https://REPLACE-WITH-NELLY-WORKER.workers.dev"
+    private let serviceURL = "https://nelly-sync.aalshari.workers.dev"
     private let keychainService = "com.ahmedalsharif.nelly.sync"
     private let chunkBytes = 4 * 1024 * 1024
     private let maxVideoBytes = 100 * 1024 * 1024
