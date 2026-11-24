@@ -54,7 +54,7 @@ struct HomeView: View {
             prepareRandomPlayback()
         }
         .task {
-            await syncManager.syncNow(library: library)
+            await syncManager.syncNow(library: library, screenTime: screenTime)
             var syncTicks = 0
             while !Task.isCancelled {
                 try? await Task.sleep(for: .seconds(1))
@@ -62,7 +62,7 @@ struct HomeView: View {
                     syncTicks += 1
                     if syncTicks >= 30 {
                         syncTicks = 0
-                        await syncManager.syncNow(library: library)
+                        await syncManager.syncNow(library: library, screenTime: screenTime)
                     }
                 }
                 if scenePhase == .active && !showAdmin && !showPIN && !library.activeVideos.isEmpty {
@@ -75,11 +75,11 @@ struct HomeView: View {
                 screenTime.setPlaying(false)
             } else {
                 prepareRandomPlayback()
-                Task { await syncManager.syncNow(library: library) }
+                Task { await syncManager.syncNow(library: library, screenTime: screenTime) }
             }
         }
         .onChange(of: library.videos) { _, _ in
-            Task { await syncManager.syncNow(library: library) }
+            Task { await syncManager.syncNow(library: library, screenTime: screenTime) }
         }
         .onChange(of: currentVideoID) { oldID, newID in
             if let item = playbackVideos.first(where: { $0.id == newID }) {
