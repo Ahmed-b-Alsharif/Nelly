@@ -55,8 +55,16 @@ struct HomeView: View {
         }
         .task {
             await syncManager.syncNow(library: library)
+            var syncTicks = 0
             while !Task.isCancelled {
                 try? await Task.sleep(for: .seconds(1))
+                if scenePhase == .active {
+                    syncTicks += 1
+                    if syncTicks >= 30 {
+                        syncTicks = 0
+                        await syncManager.syncNow(library: library)
+                    }
+                }
                 if scenePhase == .active && !showAdmin && !showPIN && !library.activeVideos.isEmpty {
                     screenTime.tick()
                 }
