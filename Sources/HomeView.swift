@@ -3,6 +3,7 @@ import SwiftUI
 struct HomeView: View {
     @EnvironmentObject private var library: LibraryStore
     @EnvironmentObject private var screenTime: ScreenTimeStore
+    @EnvironmentObject private var syncManager: NellySyncManager
     @Environment(\.scenePhase) private var scenePhase
     @AppStorage("nelly.adminPIN") private var adminPIN = "2468"
     @AppStorage("nelly.pinConfigured") private var pinConfigured = false
@@ -53,6 +54,7 @@ struct HomeView: View {
             prepareRandomPlayback()
         }
         .task {
+            await syncManager.syncNow(library: library)
             while !Task.isCancelled {
                 try? await Task.sleep(for: .seconds(1))
                 if scenePhase == .active && !showAdmin && !showPIN && !library.activeVideos.isEmpty {
@@ -65,7 +67,11 @@ struct HomeView: View {
                 screenTime.setPlaying(false)
             } else {
                 prepareRandomPlayback()
+                Task { await syncManager.syncNow(library: library) }
             }
+        }
+        .onChange(of: library.videos) { _, _ in
+            Task { await syncManager.syncNow(library: library) }
         }
         .onChange(of: currentVideoID) { oldID, newID in
             if let item = playbackVideos.first(where: { $0.id == newID }) {
