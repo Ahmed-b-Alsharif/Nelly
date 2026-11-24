@@ -25,10 +25,10 @@ The deployment config uses the D1 database and KV namespace already created for 
 
 1. Keep the Cloudflare account on the Free plan. Do not add an R2 subscription or enable a paid plan for Nelly.
 2. The actual `wrangler.toml` in this folder binds D1 as `DB` and the existing KV namespace as `RELAY`.
-3. Apply `schema.sql` to the existing D1 database named `nelly-sync` using the D1 SQL console. It creates the tables required by the Worker.
-4. Deploy this folder as Worker `nelly-sync` from the connected Git repository, with the root directory set to `cloud` and deploy command `npx wrangler deploy`.
+3. Deploy this folder as Worker `nelly-sync` from the connected Git repository, with the root directory set to `cloud` and deploy command `npx wrangler deploy`.
+4. The Worker automatically creates the required D1 tables on its first request; `schema.sql` is kept as the readable schema reference.
 5. Confirm the Worker health endpoint returns `{"service":"Nelly Sync","status":"ok",...}`.
-6. Set the deployed `workers.dev` URL in `Sources/NellySyncManager.swift`, then build the iOS app.
+6. The iOS client is already configured for `https://nelly-sync.aalshari.workers.dev`; build the iOS app after the Worker deployment succeeds.
 
 Do not put Cloudflare API tokens, account secrets, or device tokens in this repository.
 
