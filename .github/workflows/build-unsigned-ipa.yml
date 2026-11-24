@@ -31,6 +31,10 @@ jobs:
           .venv/bin/pip install pillow
       - name: Generate butterfly app icon
         run: .venv/bin/python scripts/generate_icon.py
+      - name: Validate sync Worker and D1 schema
+        run: |
+          node --check cloud/worker.js
+          sqlite3 :memory: < cloud/schema.sql
       - name: Generate Xcode project
         run: xcodegen generate
       - name: Build unsigned app
