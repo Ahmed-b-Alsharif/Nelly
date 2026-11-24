@@ -1,4 +1,5 @@
 import Foundation
+import SwiftUI
 import UIKit
 
 private struct NellyBackupFile: Codable {
