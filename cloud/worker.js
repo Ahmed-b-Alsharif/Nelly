@@ -1,5 +1,9 @@
 const JSON_HEADERS = { "content-type": "application/json; charset=utf-8" };
 const MAX_VIDEO_BYTES = 100 * 1024 * 1024;
+const MAX_FAMILY_RELAY_BYTES = 512 * 1024 * 1024;
+const CHUNK_BYTES = 4 * 1024 * 1024;
+const MAX_CHUNKS = Math.ceil(MAX_VIDEO_BYTES / CHUNK_BYTES);
+const RELAY_TTL_SECONDS = 30 * 24 * 60 * 60;
 const INVITE_TTL_SECONDS = 15 * 60;
 
 function json(data, status = 200) {
@@ -33,10 +37,20 @@ async function authenticated(request, env) {
     "SELECT id, family_id, device_name FROM devices WHERE token_hash = ? AND revoked = 0"
   ).bind(tokenHash).first();
 }
+function chunkKey(familyId, videoId, index) {
+  return familyId + "/" + videoId + "/" + String(index).padStart(4, "0");
+}
+async function deleteRelay(env, familyId, videoId, chunkCount) {
+  const keys = [];
+  for (let i = 0; i < chunkCount; i++) keys.push(chunkKey(familyId, videoId, i));
+  for (let i = 0; i < keys.length; i += 100) await env.RELAY.delete(keys.slice(i, i + 100));
+}
 async function handle(request, env) {
   const url = new URL(request.url);
   if (request.method === "OPTIONS") return new Response(null, { status: 204 });
-  if (url.pathname === "/health" && request.method === "GET") return json({ service: "Nelly Sync", status: "ok", version: 1 });
+  if (url.pathname === "/health" && request.method === "GET") {
+    return json({ service: "Nelly Sync", status: "ok", storage: "Cloudflare Workers KV chunks", version: 2 });
+  }
 
   if (url.pathname === "/v1/families" && request.method === "POST") {
     const input = await bodyJSON(request);
@@ -62,19 +76,19 @@ async function handle(request, env) {
     const deviceName = String(input?.deviceName || "Parent iPhone").slice(0, 60);
     if (!/^[A-F0-9]{10}$/.test(code)) return json({ error: "invalid_pairing_code" }, 400);
     const now = Math.floor(Date.now() / 1000);
+    const codeHash = await digest(code);
     const invite = await env.DB.prepare(
       "SELECT family_id FROM pairing_codes WHERE code_hash = ? AND expires_at >= ? AND used_at IS NULL"
-    ).bind(await digest(code), now).first();
+    ).bind(codeHash, now).first();
     if (!invite) return json({ error: "pairing_code_expired_or_used" }, 404);
     const count = await env.DB.prepare("SELECT COUNT(*) AS total FROM devices WHERE family_id = ? AND revoked = 0")
       .bind(invite.family_id).first();
     if ((count?.total || 0) >= 2) return json({ error: "family_already_has_two_devices" }, 409);
+    const used = await env.DB.prepare("UPDATE pairing_codes SET used_at = ? WHERE code_hash = ? AND used_at IS NULL")
+      .bind(now, codeHash).run();
+    if (!used.meta?.changes) return json({ error: "pairing_code_already_used" }, 409);
     const deviceId = crypto.randomUUID();
     const token = randomToken(32);
-    const result = await env.DB.prepare(
-      "UPDATE pairing_codes SET used_at = ? WHERE code_hash = ? AND used_at IS NULL"
-    ).bind(now, await digest(code)).run();
-    if (!result.meta?.changes) return json({ error: "pairing_code_already_used" }, 409);
     await env.DB.prepare(
       "INSERT INTO devices (id, family_id, device_name, token_hash, created_at) VALUES (?, ?, ?, ?, ?)"
     ).bind(deviceId, invite.family_id, deviceName, await digest(token), now).run();
@@ -86,62 +100,100 @@ async function handle(request, env) {
 
   if (url.pathname === "/v1/library" && request.method === "GET") {
     const rows = await env.DB.prepare(
-      "SELECT id, file_name, title, byte_count, created_at FROM videos WHERE family_id = ? ORDER BY created_at, id"
-    ).bind(device.family_id).all();
+      "SELECT v.id, v.file_name AS fileName, v.title, v.byte_count AS byteCount, v.chunk_count AS chunkCount, v.created_at AS createdAt, v.relay_deleted AS relayDeleted, v.upload_complete AS uploadComplete, EXISTS(SELECT 1 FROM video_receipts r WHERE r.video_id = v.id AND r.device_id = ?) AS receivedByMe FROM videos v WHERE v.family_id = ? AND v.upload_complete = 1 ORDER BY v.created_at, v.id"
+    ).bind(device.id, device.family_id).all();
     return json({ familyId: device.family_id, deviceId: device.id, videos: rows.results || [] });
   }
 
-  const videoMatch = url.pathname.match(/^\/v1\/videos\/([0-9a-fA-F-]{36})$/);
-  if (videoMatch && request.method === "PUT") {
-    const videoId = videoMatch[1];
-    const length = Number(request.headers.get("content-length") || 0);
-    if (!Number.isFinite(length) || length <= 0 || length > MAX_VIDEO_BYTES) {
-      return json({ error: "video_size_out_of_range", maxBytes: MAX_VIDEO_BYTES }, 413);
+  const manifestMatch = url.pathname.match(/^\/v1\/videos\/([0-9a-fA-F-]{36})\/manifest$/);
+  if (manifestMatch && request.method === "POST") {
+    const videoId = manifestMatch[1];
+    const input = await bodyJSON(request);
+    const byteCount = Number(input?.byteCount);
+    const chunkCount = Number(input?.chunkCount);
+    if (!Number.isSafeInteger(byteCount) || byteCount < 1 || byteCount > MAX_VIDEO_BYTES ||
+        !Number.isSafeInteger(chunkCount) || chunkCount < 1 || chunkCount > MAX_CHUNKS ||
+        chunkCount !== Math.ceil(byteCount / CHUNK_BYTES)) {
+      return json({ error: "invalid_video_manifest", maxBytes: MAX_VIDEO_BYTES, chunkBytes: CHUNK_BYTES }, 413);
     }
-    const fileName = (request.headers.get("x-file-name") || "video.mp4").replace(/[\\/\0-\r\n]/g, "_").slice(0, 180);
-    const title = (request.headers.get("x-video-title") || "").slice(0, 200);
     const existing = await env.DB.prepare("SELECT id FROM videos WHERE id = ? AND family_id = ?")
       .bind(videoId, device.family_id).first();
     if (existing) return json({ error: "video_id_already_exists" }, 409);
-    const totals = await env.DB.prepare("SELECT COALESCE(SUM(byte_count), 0) AS used FROM videos WHERE family_id = ?")
+    const totals = await env.DB.prepare("SELECT COALESCE(SUM(byte_count), 0) AS used FROM videos WHERE family_id = ? AND relay_deleted = 0")
       .bind(device.family_id).first();
-    if ((totals?.used || 0) + length > 9 * 1024 * 1024 * 1024) {
-      return json({ error: "family_free_storage_limit_reached" }, 507);
+    if ((totals?.used || 0) + byteCount > MAX_FAMILY_RELAY_BYTES) {
+      return json({ error: "family_kv_relay_limit_reached", maxBytes: MAX_FAMILY_RELAY_BYTES }, 507);
     }
-    await env.VIDEOS.put(device.family_id + "/" + videoId, request.body, {
-      httpMetadata: { contentType: request.headers.get("content-type") || "video/mp4" },
-      customMetadata: { fileName, title, uploadedBy: device.id }
-    });
+    const fileName = String(input?.fileName || "video.mp4").replace(/[\\/\0-\r\n]/g, "_").slice(0, 180);
+    const title = String(input?.title || "").slice(0, 200);
     const now = Math.floor(Date.now() / 1000);
     await env.DB.batch([
-      env.DB.prepare("INSERT INTO videos (id, family_id, file_name, title, byte_count, created_at, relay_deleted) VALUES (?, ?, ?, ?, ?, ?, 0)")
-        .bind(videoId, device.family_id, fileName, title, length, now),
+      env.DB.prepare("INSERT INTO videos (id, family_id, file_name, title, byte_count, chunk_count, created_at, relay_deleted, upload_complete) VALUES (?, ?, ?, ?, ?, ?, ?, 0, 0)")
+        .bind(videoId, device.family_id, fileName, title, byteCount, chunkCount, now),
       env.DB.prepare("INSERT INTO video_receipts (video_id, device_id, received_at) VALUES (?, ?, ?)")
         .bind(videoId, device.id, now)
     ]);
-    return json({ uploaded: true, videoId, byteCount: length }, 201);
+    return json({ accepted: true, chunkBytes: CHUNK_BYTES, chunkCount }, 201);
   }
 
+  const chunkMatch = url.pathname.match(/^\/v1\/videos\/([0-9a-fA-F-]{36})\/chunks\/(\d+)$/);
+  if (chunkMatch && request.method === "PUT") {
+    const videoId = chunkMatch[1];
+    const index = Number(chunkMatch[2]);
+    const row = await env.DB.prepare("SELECT byte_count, chunk_count, upload_complete, relay_deleted FROM videos WHERE id = ? AND family_id = ?")
+      .bind(videoId, device.family_id).first();
+    if (!row || row.relay_deleted || row.upload_complete || !Number.isInteger(index) || index < 0 || index >= row.chunk_count) {
+      return json({ error: "invalid_chunk_target" }, 404);
+    }
+    const expected = index === row.chunk_count - 1 ? row.byte_count - (index * CHUNK_BYTES) : CHUNK_BYTES;
+    const declared = Number(request.headers.get("content-length") || 0);
+    if (declared !== expected) return json({ error: "invalid_chunk_size", expectedBytes: expected }, 413);
+    const bytes = await request.arrayBuffer();
+    if (bytes.byteLength !== expected) return json({ error: "incomplete_chunk" }, 400);
+    await env.RELAY.put(chunkKey(device.family_id, videoId, index), bytes, {
+      expirationTtl: RELAY_TTL_SECONDS,
+      metadata: { familyId: device.family_id, videoId, index: String(index) }
+    });
+    return json({ stored: true, index });
+  }
+
+  const completeMatch = url.pathname.match(/^\/v1\/videos\/([0-9a-fA-F-]{36})\/complete$/);
+  if (completeMatch && request.method === "POST") {
+    const videoId = completeMatch[1];
+    const row = await env.DB.prepare("SELECT chunk_count, upload_complete, relay_deleted FROM videos WHERE id = ? AND family_id = ?")
+      .bind(videoId, device.family_id).first();
+    if (!row || row.relay_deleted) return json({ error: "video_not_found" }, 404);
+    if (row.upload_complete) return json({ complete: true });
+    for (let i = 0; i < row.chunk_count; i++) {
+      if (!(await env.RELAY.get(chunkKey(device.family_id, videoId, i), "arrayBuffer"))) {
+        return json({ error: "chunk_not_visible_yet", missingChunk: i, retryAfterSeconds: 2 }, 425);
+      }
+    }
+    await env.DB.prepare("UPDATE videos SET upload_complete = 1 WHERE id = ? AND family_id = ?")
+      .bind(videoId, device.family_id).run();
+    return json({ complete: true });
+  }
+
+  const videoMatch = url.pathname.match(/^\/v1\/videos\/([0-9a-fA-F-]{36})$/);
   if (videoMatch && request.method === "GET") {
     const videoId = videoMatch[1];
-    const row = await env.DB.prepare("SELECT id FROM videos WHERE id = ? AND family_id = ?")
+    const index = Number(url.searchParams.get("chunk"));
+    const row = await env.DB.prepare("SELECT chunk_count, relay_deleted, upload_complete FROM videos WHERE id = ? AND family_id = ?")
       .bind(videoId, device.family_id).first();
-    if (!row) return json({ error: "video_not_found" }, 404);
-    const object = await env.VIDEOS.get(device.family_id + "/" + videoId);
-    if (!object) return json({ error: "temporary_video_copy_already_cleared" }, 410);
-    const headers = new Headers();
-    object.writeHttpMetadata(headers);
-    headers.set("content-length", String(object.size));
-    headers.set("cache-control", "private, no-store");
-    return new Response(object.body, { headers });
+    if (!row || !row.upload_complete) return json({ error: "video_not_found" }, 404);
+    if (row.relay_deleted) return json({ error: "temporary_video_copy_already_cleared" }, 410);
+    if (!Number.isInteger(index) || index < 0 || index >= row.chunk_count) return json({ error: "invalid_chunk_index" }, 400);
+    const bytes = await env.RELAY.get(chunkKey(device.family_id, videoId, index), "arrayBuffer");
+    if (!bytes) return json({ error: "chunk_not_visible_or_expired", retryAfterSeconds: 2 }, 404);
+    return new Response(bytes, { headers: { "content-type": "application/octet-stream", "cache-control": "private, no-store" } });
   }
 
   const ackMatch = url.pathname.match(/^\/v1\/videos\/([0-9a-fA-F-]{36})\/ack$/);
   if (ackMatch && request.method === "POST") {
     const videoId = ackMatch[1];
-    const row = await env.DB.prepare("SELECT id FROM videos WHERE id = ? AND family_id = ? AND relay_deleted = 0")
+    const row = await env.DB.prepare("SELECT chunk_count FROM videos WHERE id = ? AND family_id = ? AND relay_deleted = 0 AND upload_complete = 1")
       .bind(videoId, device.family_id).first();
-    if (!row) return json({ error: "video_not_found_or_already_acknowledged" }, 404);
+    if (!row) return json({ error: "video_not_found_or_already_cleared" }, 404);
     const now = Math.floor(Date.now() / 1000);
     await env.DB.prepare("INSERT OR IGNORE INTO video_receipts (video_id, device_id, received_at) VALUES (?, ?, ?)")
       .bind(videoId, device.id, now).run();
@@ -149,9 +201,10 @@ async function handle(request, env) {
       .bind(device.family_id).first();
     const received = await env.DB.prepare("SELECT COUNT(*) AS total FROM video_receipts WHERE video_id = ?")
       .bind(videoId).first();
-    if ((expected?.total || 0) >= 2 && (received?.total || 0) >= 2) {
-      await env.VIDEOS.delete(device.family_id + "/" + videoId);
-      await env.DB.prepare("UPDATE videos SET relay_deleted = 1 WHERE id = ?").bind(videoId).run();
+    if ((expected?.total || 0) === 2 && (received?.total || 0) === 2) {
+      await deleteRelay(env, device.family_id, videoId, row.chunk_count);
+      await env.DB.prepare("UPDATE videos SET relay_deleted = 1 WHERE id = ? AND family_id = ?")
+        .bind(videoId, device.family_id).run();
       return json({ acknowledged: true, relayCopyDeleted: true });
     }
     return json({ acknowledged: true, relayCopyDeleted: false });
@@ -164,7 +217,7 @@ export default {
   async fetch(request, env) {
     try {
       return cors(await handle(request, env), request);
-    } catch (error) {
+    } catch {
       return cors(json({ error: "server_error", message: "The sync service could not complete the request." }, 500), request);
     }
   }
