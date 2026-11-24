@@ -117,9 +117,17 @@ async function handle(request, env) {
         chunkCount !== Math.ceil(byteCount / CHUNK_BYTES)) {
       return json({ error: "invalid_video_manifest", maxBytes: MAX_VIDEO_BYTES, chunkBytes: CHUNK_BYTES }, 413);
     }
-    const existing = await env.DB.prepare("SELECT id FROM videos WHERE id = ? AND family_id = ?")
+    const existing = await env.DB.prepare("SELECT chunk_count, upload_complete FROM videos WHERE id = ? AND family_id = ?")
       .bind(videoId, device.family_id).first();
-    if (existing) return json({ error: "video_id_already_exists" }, 409);
+    if (existing?.upload_complete) return json({ error: "video_id_already_exists" }, 409);
+    if (existing) {
+      // Recover an interrupted upload using the same stable local video ID.
+      await deleteRelay(env, device.family_id, videoId, existing.chunk_count);
+      await env.DB.batch([
+        env.DB.prepare("DELETE FROM video_receipts WHERE video_id = ?").bind(videoId),
+        env.DB.prepare("DELETE FROM videos WHERE id = ? AND family_id = ?").bind(videoId, device.family_id)
+      ]);
+    }
     const totals = await env.DB.prepare("SELECT COALESCE(SUM(byte_count), 0) AS used FROM videos WHERE family_id = ? AND relay_deleted = 0")
       .bind(device.family_id).first();
     if ((totals?.used || 0) + byteCount > MAX_FAMILY_RELAY_BYTES) {
