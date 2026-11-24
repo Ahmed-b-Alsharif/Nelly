@@ -134,6 +134,10 @@ final class NellySyncManager: ObservableObject {
                 }
                 try await downloadVideo(video, into: library)
             }
+            if !pushLibraryMetadata {
+                library.applySyncedOrder(remote.videos.filter { !$0.isDeleted }.sorted { $0.position < $1.position }
+                    .compactMap { UUID(uuidString: $0.id) })
+            }
             if let screenTime { try await syncScreenTime(screenTime) }
             lastSyncDate = Date()
             statusMessage = "Synced successfully."
