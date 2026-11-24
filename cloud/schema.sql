@@ -26,8 +26,10 @@ CREATE TABLE IF NOT EXISTS videos (
   file_name TEXT NOT NULL,
   title TEXT NOT NULL DEFAULT '',
   byte_count INTEGER NOT NULL,
+  chunk_count INTEGER NOT NULL,
   created_at INTEGER NOT NULL,
-  relay_deleted INTEGER NOT NULL DEFAULT 0
+  relay_deleted INTEGER NOT NULL DEFAULT 0,
+  upload_complete INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS idx_videos_family ON videos(family_id, created_at);
 
