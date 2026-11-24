@@ -96,6 +96,65 @@ enum NellyBackupBuilder {
     }
 }
 
+
+@MainActor
+enum NellyBackupRestorer {
+    static func restore(from folderURL: URL, into library: LibraryStore) throws -> Int {
+        let manifestURL = folderURL.appendingPathComponent("NellyBackup.json")
+        let data = try Data(contentsOf: manifestURL)
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        let manifest = try decoder.decode(NellyBackupManifest.self, from: data)
+        guard manifest.formatVersion == 1 else { throw NellyBackupRestoreError.unsupportedVersion }
+
+        let existingIDs = Set(library.videos.map(\.id))
+        let pending = manifest.videos.filter { !existingIDs.contains($0.id) }
+        if pending.isEmpty { return 0 }
+
+        let filesByID = Dictionary(uniqueKeysWithValues: manifest.files.map { ($0.videoID, $0) })
+        var fileSources: [UUID: URL] = [:]
+        for item in pending where item.kind == .file {
+            guard let entry = filesByID[item.id],
+                  entry.relativePath.hasPrefix("Videos/"),
+                  !entry.relativePath.contains("..") else {
+                throw NellyBackupRestoreError.missingVideo(item.title ?? item.value)
+            }
+            let source = folderURL.appendingPathComponent(entry.relativePath)
+            let values = try source.resourceValues(forKeys: [.isRegularFileKey, .fileSizeKey])
+            guard values.isRegularFile == true, Int64(values.fileSize ?? 0) == entry.byteCount else {
+                throw NellyBackupRestoreError.invalidVideo(item.title ?? item.value)
+            }
+            fileSources[item.id] = source
+        }
+
+        var restored = 0
+        for item in pending {
+            if item.kind == .file {
+                guard let source = fileSources[item.id] else { continue }
+                try library.importRestoredVideo(from: source, item: item)
+            } else {
+                library.videos.append(item)
+            }
+            restored += 1
+        }
+        return restored
+    }
+}
+
+private enum NellyBackupRestoreError: LocalizedError {
+    case unsupportedVersion
+    case missingVideo(String)
+    case invalidVideo(String)
+
+    var errorDescription: String? {
+        switch self {
+        case .unsupportedVersion: return "This backup version is not supported."
+        case .missingVideo(let name): return "The backup is missing the video: \(name). No existing videos were changed."
+        case .invalidVideo(let name): return "The backup video could not be verified: \(name). No existing videos were changed."
+        }
+    }
+}
+
 struct NellyBackupDocumentPicker: UIViewControllerRepresentable {
     let folderURL: URL
     let onComplete: (Bool) -> Void
