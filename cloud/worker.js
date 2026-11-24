@@ -43,7 +43,7 @@ function chunkKey(familyId, videoId, index) {
 async function deleteRelay(env, familyId, videoId, chunkCount) {
   const keys = [];
   for (let i = 0; i < chunkCount; i++) keys.push(chunkKey(familyId, videoId, i));
-  for (let i = 0; i < keys.length; i += 100) await env.RELAY.delete(keys.slice(i, i + 100));
+  for (const key of keys) await env.RELAY.delete(key);
 }
 async function handle(request, env) {
   const url = new URL(request.url);
