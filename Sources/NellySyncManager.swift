@@ -97,9 +97,14 @@ final class NellySyncManager: ObservableObject {
             }
             remote = try await fetchRemoteLibrary()
             if pushLibraryMetadata {
-                for video in remote.videos {
+                for video in remote.videos where !video.isDeleted {
                     guard let id = UUID(uuidString: video.id),
-                          let local = library.videos.first(where: { $0.id == id }) else { continue }
+                          let local = library.videos.first(where: { $0.id == id }) else {
+                        if !video.isDeleted {
+                            _ = try await request(path: "/v1/videos/\(video.id)/delete", method: "POST", body: Data("{}".utf8))
+                        }
+                        continue
+                    }
                     let position = library.videos.firstIndex(where: { $0.id == id }) ?? video.position
                     let metadata: [String: Any] = [
                         "title": local.title ?? "", "enabled": local.enabled, "position": position
@@ -110,12 +115,16 @@ final class NellySyncManager: ObservableObject {
             } else {
                 for video in remote.videos {
                     guard let id = UUID(uuidString: video.id) else { continue }
-                    library.applySyncedMetadata(id: id, title: video.title, enabled: video.enabled)
+                    if video.isDeleted {
+                        if let local = library.videos.first(where: { $0.id == id }) { library.delete(local) }
+                    } else {
+                        library.applySyncedMetadata(id: id, title: video.title, enabled: video.enabled)
+                    }
                 }
-                library.applySyncedOrder(remote.videos.sorted { $0.position < $1.position }
+                library.applySyncedOrder(remote.videos.filter { !$0.isDeleted }.sorted { $0.position < $1.position }
                     .compactMap { UUID(uuidString: $0.id) })
             }
-            for video in remote.videos where !video.receivedByMe && !video.relayDeleted {
+            for video in remote.videos where !video.isDeleted && !video.receivedByMe && !video.relayDeleted {
                 if let id = UUID(uuidString: video.id),
                    let existing = library.videos.first(where: { $0.id == id }),
                    library.localURL(for: existing) != nil {
@@ -333,6 +342,7 @@ final class NellySyncManager: ObservableObject {
         let byteCount: Int
         let chunkCount: Int
         let relayDeleted: Bool
+        let isDeleted: Bool
         let receivedByMe: Bool
     }
     private enum SyncError: LocalizedError {
