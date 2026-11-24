@@ -105,16 +105,7 @@ struct AdminView: View {
                     }
                 }
 
-                Section("Backup your library") {
-                    Button {
-                        createLibraryBackup()
-                    } label: {
-                        Label("Export a full backup", systemImage: "externaldrive.fill")
-                    }
-                    Text("Copies every video and its library details into a separate folder that you can save in Files or another location. Your current Nelly videos are not moved or deleted.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
+                backupSection
 
                 Section("Your video library") {
                     if library.videos.isEmpty {
@@ -236,6 +227,17 @@ struct AdminView: View {
         }
     }
 
+
+    private var backupSection: some View {
+        Section("Backup your library") {
+            Button(action: createLibraryBackup) {
+                Label("Export a full backup", systemImage: "externaldrive.fill")
+            }
+            Text("Copies every video and its library details into a separate folder that you can save in Files or another location. Your current Nelly videos are not moved or deleted.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+    }
 
     private func createLibraryBackup() {
         do {
