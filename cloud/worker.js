@@ -100,9 +100,9 @@ async function handle(request, env) {
 
   if (url.pathname === "/v1/library" && request.method === "GET") {
     const rows = await env.DB.prepare(
-      "SELECT v.id, v.file_name AS fileName, v.title, v.byte_count AS byteCount, v.chunk_count AS chunkCount, v.created_at AS createdAt, v.relay_deleted AS relayDeleted, v.upload_complete AS uploadComplete, EXISTS(SELECT 1 FROM video_receipts r WHERE r.video_id = v.id AND r.device_id = ?) AS receivedByMe FROM videos v WHERE v.family_id = ? AND v.upload_complete = 1 ORDER BY v.created_at, v.id"
+      "SELECT v.id, v.file_name AS fileName, v.title, v.enabled, v.position, v.byte_count AS byteCount, v.chunk_count AS chunkCount, v.created_at AS createdAt, v.relay_deleted AS relayDeleted, v.upload_complete AS uploadComplete, EXISTS(SELECT 1 FROM video_receipts r WHERE r.video_id = v.id AND r.device_id = ?) AS receivedByMe FROM videos v WHERE v.family_id = ? AND v.upload_complete = 1 ORDER BY v.created_at, v.id"
     ).bind(device.id, device.family_id).all();
-    const videos = (rows.results || []).map(row => ({ ...row, receivedByMe: Boolean(row.receivedByMe), relayDeleted: Boolean(row.relayDeleted) }));
+    const videos = (rows.results || []).map(row => ({ ...row, enabled: Boolean(row.enabled), receivedByMe: Boolean(row.receivedByMe), relayDeleted: Boolean(row.relayDeleted) }));
     return json({ familyId: device.family_id, deviceId: device.id, videos });
   }
 
@@ -170,14 +170,33 @@ async function handle(request, env) {
     }
     const fileName = String(input?.fileName || "video.mp4").replace(/[\\/\0-\r\n]/g, "_").slice(0, 180);
     const title = String(input?.title || "").slice(0, 200);
+    const enabled = input?.enabled === false ? 0 : 1;
+    const position = Number.isInteger(input?.position) ? Math.max(0, Math.min(10000, input.position)) : 0;
     const now = Math.floor(Date.now() / 1000);
     await env.DB.batch([
-      env.DB.prepare("INSERT INTO videos (id, family_id, file_name, title, byte_count, chunk_count, created_at, relay_deleted, upload_complete) VALUES (?, ?, ?, ?, ?, ?, ?, 0, 0)")
-        .bind(videoId, device.family_id, fileName, title, byteCount, chunkCount, now),
+      env.DB.prepare("INSERT INTO videos (id, family_id, file_name, title, enabled, position, byte_count, chunk_count, created_at, relay_deleted, upload_complete) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0)")
+        .bind(videoId, device.family_id, fileName, title, enabled, position, byteCount, chunkCount, now),
       env.DB.prepare("INSERT INTO video_receipts (video_id, device_id, received_at) VALUES (?, ?, ?)")
         .bind(videoId, device.id, now)
     ]);
     return json({ accepted: true, chunkBytes: CHUNK_BYTES, chunkCount }, 201);
+  }
+
+  const metaMatch = url.pathname.match(/^\\/v1\\/videos\\/([0-9a-fA-F-]{36})\\/meta$/);
+  if (metaMatch && request.method === "PUT") {
+    const videoId = metaMatch[1];
+    const input = await bodyJSON(request);
+    const title = String(input?.title || "").slice(0, 200);
+    const enabled = input?.enabled === false ? 0 : 1;
+    const position = Number(input?.position);
+    if (!Number.isInteger(position) || position < 0 || position > 10000) {
+      return json({ error: "invalid_video_position" }, 400);
+    }
+    const result = await env.DB.prepare(
+      "UPDATE videos SET title = ?, enabled = ?, position = ? WHERE id = ? AND family_id = ? AND upload_complete = 1"
+    ).bind(title, enabled, position, videoId, device.family_id).run();
+    if (!result.meta?.changes) return json({ error: "video_not_found" }, 404);
+    return json({ updated: true });
   }
 
   const chunkMatch = url.pathname.match(/^\/v1\/videos\/([0-9a-fA-F-]{36})\/chunks\/(\d+)$/);
