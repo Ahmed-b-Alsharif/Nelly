@@ -1,31 +1,50 @@
-# Nelly Sync service (first milestone)
+# Nelly Sync service — KV relay test milestone
 
-This folder contains the first backend slice for pairing two parent iPhones and relaying a test video.
+This service pairs two parent iPhones and temporarily relays parent-approved local videos through Cloudflare Workers KV. It does not use R2.
 
-## What this milestone supports
-- Create a family on the first phone and issue a one-time 10-character pairing code.
-- Pair one second phone. A family is limited to two active devices.
-- Store only a SHA-256 hash of each device bearer token and pairing code in D1.
-- Upload a video to a private R2 bucket and let the other paired device download it.
-- The uploading phone is recorded as having its local copy. Once both paired phones acknowledge a video, the relay object is deleted. The metadata remains so both devices can keep the shared library listing.
+## Cloud resources used
 
-## Free-tier guardrails
-- Per-family upload ceiling is 9 GiB (below the R2 free allowance, leaving headroom).
-- Per-video request ceiling is 100 MiB in this first milestone.
-- The service never creates a paid plan or enables billing.
-- R2/D1/Workers are subject to Cloudflare's current free quotas and account limits. If a quota is reached, synchronization must pause rather than delete local files.
+- Cloudflare Worker: request handling and authentication.
+- Cloudflare D1 database: family/device records, pairing codes, video manifests and receipt records.
+- Cloudflare Workers KV namespace: temporary video chunks.
+- No R2 bucket, paid plan, or paid subscription is configured by this project.
 
-## Deploying
-1. Create a Cloudflare account and enable Workers, D1, and R2 on the free plan.
-2. Create a D1 database named `nelly-sync` and an R2 bucket named `nelly-video-relay`.
-3. Copy `wrangler.toml.example` to `wrangler.toml`, then replace the D1 database ID with the ID shown in Cloudflare.
-4. Apply `schema.sql` to the D1 database.
-5. Deploy `worker.js` as a Worker named `nelly-sync` and bind the D1 database as `DB` and R2 bucket as `VIDEOS`.
-6. Keep the Worker URL private until the iOS client pairing flow is ready.
+The deployment config uses the D1 database and KV namespace already created for Nelly.
 
-Do not put a Cloudflare API token, account secret, or device token in this repository. Device tokens are returned once to the app and must be stored in the iOS Keychain.
+## Video relay rules
 
-## Important current limitations
-This is deliberately only the first transport milestone. It does not yet synchronize rename/reorder/enable/disable/delete operations, screen-time usage, PIN changes, or backup restore. It also does not yet have the iOS client screens or a deployed Worker. Do not install a new IPA based on this backend source alone.
+- Each video is limited to 100 MiB for the first test.
+- Videos are split into 4 MiB chunks so each KV value stays below the 25 MiB per-value ceiling.
+- One family is capped at 512 MiB of outstanding relay data. This is a conservative app-level cap, not a promise of unlimited storage.
+- Temporary chunks receive a 30-day expiry as a cleanup fallback. If both phones acknowledge the video sooner, Nelly deletes the chunks immediately.
+- The uploader's local file is never deleted by sync. The receiver stores its own local copy before acknowledging.
+- If storage or request limits are reached, sync stops and local files remain untouched.
+- KV is eventually consistent. The receiver may need to retry while newly uploaded chunks become visible.
 
-The temporary relay object is removed only after both devices acknowledge successful local receipt. If one phone remains offline, the relay copy stays available. If both phones later lose their local copies after the relay has been cleared, restore from the exported Nelly backup.
+## Deployment
+
+1. Keep the Cloudflare account on the Free plan. Do not add an R2 subscription or enable a paid plan for Nelly.
+2. The actual `wrangler.toml` in this folder binds D1 as `DB` and the existing KV namespace as `RELAY`.
+3. Apply `schema.sql` to the existing D1 database named `nelly-sync` using the D1 SQL console. It creates the tables required by the Worker.
+4. Deploy this folder as Worker `nelly-sync` from the connected Git repository, with the root directory set to `cloud` and deploy command `npx wrangler deploy`.
+5. Confirm the Worker health endpoint returns `{"service":"Nelly Sync","status":"ok",...}`.
+6. Set the deployed `workers.dev` URL in `Sources/NellySyncManager.swift`, then build the iOS app.
+
+Do not put Cloudflare API tokens, account secrets, or device tokens in this repository.
+
+## First test
+
+1. Install the test build on both parent iPhones.
+2. On the first iPhone, open Admin → Family sync → Create family and pairing code.
+3. On the second iPhone, enter the one-time code under Join existing family.
+4. Keep both phones online and open Nelly. Add one small test video on the first phone.
+5. Open Nelly on the second phone. It should download the video into its own private local library.
+6. Confirm the video plays offline on the second phone. Then check the KV namespace: temporary chunk keys should be removed after both devices acknowledge receipt.
+
+## Current scope and limitations
+
+This milestone implements pairing and temporary video transfer. The iOS client syncs when Nelly opens, returns to the foreground, or the local library changes. It does not guarantee background transfer while the app is fully closed.
+
+Shared rename/reorder/enable/disable state, shared screen-time accounting, restore-from-backup, production abuse protection/rate limiting, and full two-device device testing are not yet complete. Do not treat the service as production-ready until those are implemented and tested.
+
+The 30-day TTL is a safety cleanup fallback: if the second phone remains offline longer than that, the temporary relay may expire. The original phone's local video remains safe.
