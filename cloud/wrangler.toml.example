@@ -1,0 +1,12 @@
+name = "nelly-sync"
+main = "worker.js"
+compatibility_date = "2026-11-24"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "nelly-sync"
+database_id = "REPLACE_WITH_YOUR_D1_DATABASE_ID"
+
+[[r2_buckets]]
+binding = "VIDEOS"
+bucket_name = "nelly-video-relay"
