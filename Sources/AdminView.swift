@@ -247,7 +247,7 @@ struct AdminView: View {
             message = "Backup prepared. Choose a location in Files to save it."
             showBackupExporter = true
         } catch {
-            message = "Could not create backup: \\(error.localizedDescription)"
+            message = "Could not create backup: \(error.localizedDescription)"
         }
     }
 
