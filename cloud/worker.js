@@ -122,7 +122,7 @@ async function handle(request, env) {
     const resetAt = Number(input?.resetAt || 0);
     if (!Number.isInteger(dailyLimit) || dailyLimit < 1 || dailyLimit > 240 ||
         !Number.isInteger(usedSeconds) || usedSeconds < 0 || usedSeconds > 14400 ||
-        !/^\\d{4}-\\d{2}-\\d{2}$/.test(usageDay) ||
+        !/^\d{4}-\d{2}-\d{2}$/.test(usageDay) ||
         !Number.isFinite(settingsUpdatedAt) || !Number.isFinite(resetAt)) {
       return json({ error: "invalid_shared_settings" }, 400);
     }
@@ -182,7 +182,7 @@ async function handle(request, env) {
     return json({ accepted: true, chunkBytes: CHUNK_BYTES, chunkCount }, 201);
   }
 
-  const metaMatch = url.pathname.match(/^\\/v1\\/videos\\/([0-9a-fA-F-]{36})\\/meta$/);
+  const metaMatch = url.pathname.match(/^\/v1\/videos\/([0-9a-fA-F-]{36})\/meta$/);
   if (metaMatch && request.method === "PUT") {
     const videoId = metaMatch[1];
     const input = await bodyJSON(request);
@@ -199,7 +199,7 @@ async function handle(request, env) {
     return json({ updated: true });
   }
 
-  const deleteMatch = url.pathname.match(/^\\/v1\\/videos\\/([0-9a-fA-F-]{36})\\/delete$/);
+  const deleteMatch = url.pathname.match(/^\/v1\/videos\/([0-9a-fA-F-]{36})\/delete$/);
   if (deleteMatch && request.method === "POST") {
     const videoId = deleteMatch[1];
     const row = await env.DB.prepare("SELECT chunk_count FROM videos WHERE id = ? AND family_id = ? AND deleted = 0")
