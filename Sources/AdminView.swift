@@ -25,6 +25,7 @@ private struct ImportedMovie: Transferable {
 struct AdminView: View {
     @EnvironmentObject private var library: LibraryStore
     @EnvironmentObject private var screenTime: ScreenTimeStore
+    @EnvironmentObject private var syncManager: NellySyncManager
     @Environment(\.dismiss) private var dismiss
     @AppStorage("nelly.adminPIN") private var adminPIN = "2468"
     @AppStorage("nelly.theme.dark") private var darkMode = false
@@ -43,6 +44,8 @@ struct AdminView: View {
     @State private var editingVideo: VideoItem?
     @State private var backupFolderURL: URL?
     @State private var showBackupExporter = false
+    @State private var pairingCodeInput = ""
+    @State private var syncDeviceName = "Parent iPhone"
 
     var body: some View {
         NavigationStack {
@@ -104,6 +107,8 @@ struct AdminView: View {
                         Text(message).font(.caption).foregroundStyle(.secondary)
                     }
                 }
+
+                syncSection
 
                 backupSection
 
@@ -227,6 +232,67 @@ struct AdminView: View {
         }
     }
 
+
+    private var syncSection: some View {
+        Section("Family sync") {
+            if !syncManager.isConfigured {
+                Label("Sync server setup is not finished yet.", systemImage: "clock")
+                    .foregroundStyle(.secondary)
+                Text("Your videos remain safely on this iPhone. Pairing and transfers will become available after the free sync server is deployed.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            } else if syncManager.isPaired {
+                Label("This iPhone is paired", systemImage: "checkmark.icloud")
+                Text("Family ID: \\(syncManager.familyID ?? "")")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .textSelection(.enabled)
+                if let code = syncManager.pairingCode {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("Pair the second iPhone with this one-time code")
+                            .font(.subheadline)
+                        Text(code)
+                            .font(.title2.monospaced().bold())
+                            .textSelection(.enabled)
+                        if let expiry = syncManager.pairingCodeExpiry {
+                            Text("Expires at \\(expiry.formatted(date: .omitted, time: .shortened))")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                }
+                Button("Disconnect this iPhone", role: .destructive) {
+                    syncManager.disconnect()
+                }
+                Text("Disconnecting affects only this iPhone. It does not delete local videos.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            } else {
+                TextField("Device name", text: $syncDeviceName)
+                    .textInputAutocapitalization(.words)
+                Button {
+                    Task { await syncManager.createFamily(deviceName: syncDeviceName) }
+                } label: {
+                    Label("Create family and pairing code", systemImage: "person.2.badge.plus")
+                }
+                .disabled(syncManager.isBusy || syncDeviceName.trimmingCharacters(in: .whitespaces).isEmpty)
+                Divider()
+                TextField("Pairing code from the first iPhone", text: $pairingCodeInput)
+                    .textInputAutocapitalization(.characters)
+                    .autocorrectionDisabled()
+                Button {
+                    Task { await syncManager.joinFamily(pairingCode: pairingCodeInput, deviceName: syncDeviceName) }
+                } label: {
+                    Label("Join existing family", systemImage: "link")
+                }
+                .disabled(syncManager.isBusy || pairingCodeInput.trimmingCharacters(in: .whitespaces).isEmpty || syncDeviceName.trimmingCharacters(in: .whitespaces).isEmpty)
+            }
+            if syncManager.isBusy { ProgressView() }
+            Text(syncManager.statusMessage)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+    }
 
     private var backupSection: some View {
         Section("Backup your library") {
