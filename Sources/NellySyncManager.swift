@@ -182,8 +182,7 @@ final class NellySyncManager: ObservableObject {
             _ = try await request(path: "/v1/videos/\(item.id.uuidString)/chunks/\(index)",
                                   method: "PUT", body: data, contentType: "application/octet-stream")
         }
-        _ = try await request(path: "/v1/videos/\(item.id.uuidString)/complete", method: "POST",
-                              body: Data("{}".utf8))
+        try await completeUpload(item.id.uuidString)
     }
 
     private func downloadVideo(_ video: RemoteVideo, into library: LibraryStore) async throws {
@@ -200,7 +199,7 @@ final class NellySyncManager: ObservableObject {
         do {
             for index in 0..<video.chunkCount {
                 try Task.checkCancellation()
-                let data = try await request(path: "/v1/videos/\(video.id)?chunk=\(index)", method: "GET")
+                let data = try await downloadChunk(videoID: video.id, index: index)
                 try handle.write(contentsOf: data)
                 received += data.count
             }
@@ -231,6 +230,30 @@ final class NellySyncManager: ObservableObject {
             "resetAt": screenTime.sharedResetAt
         ]
         _ = try await request(path: "/v1/settings", method: "PUT", body: try jsonData(payload))
+    }
+
+    private func completeUpload(_ videoID: String) async throws {
+        for attempt in 0..<6 {
+            do {
+                _ = try await request(path: "/v1/videos/\(videoID)/complete", method: "POST",
+                                      body: Data("{}".utf8))
+                return
+            } catch SyncError.serverRejected(let code) where code == 425 && attempt < 5 {
+                try await Task.sleep(for: .seconds(2))
+            }
+        }
+        throw SyncError.serverRejected(425)
+    }
+
+    private func downloadChunk(videoID: String, index: Int) async throws -> Data {
+        for attempt in 0..<6 {
+            do {
+                return try await request(path: "/v1/videos/\(videoID)?chunk=\(index)", method: "GET")
+            } catch SyncError.serverRejected(let code) where code == 404 && attempt < 5 {
+                try await Task.sleep(for: .seconds(2))
+            }
+        }
+        throw SyncError.serverRejected(404)
     }
 
     private func acknowledge(_ videoID: String) async throws {
