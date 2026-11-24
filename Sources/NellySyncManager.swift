@@ -82,8 +82,15 @@ final class NellySyncManager: ObservableObject {
         defer { isBusy = false }
         statusMessage = "Checking the shared library…"
         do {
+            if !UserDefaults.standard.bool(forKey: "nelly.sync.baselineCaptured") {
+                let existingIDs = library.videos.filter { $0.kind == .file }.map { $0.id.uuidString }
+                UserDefaults.standard.set(existingIDs, forKey: "nelly.sync.ignoredExistingIDs")
+                UserDefaults.standard.set(true, forKey: "nelly.sync.baselineCaptured")
+            }
+            let ignoredIDs = Set(UserDefaults.standard.stringArray(forKey: "nelly.sync.ignoredExistingIDs") ?? [])
             var remote = try await fetchRemoteLibrary()
             for item in library.videos where item.kind == .file {
+                guard !ignoredIDs.contains(item.id.uuidString) else { continue }
                 guard !remote.videos.contains(where: { $0.id == item.id.uuidString }) else { continue }
                 guard let fileURL = library.localURL(for: item) else { continue }
                 try await uploadVideo(item, from: fileURL)
@@ -114,6 +121,8 @@ final class NellySyncManager: ObservableObject {
         pairingCodeExpiry = nil
         UserDefaults.standard.removeObject(forKey: "nelly.sync.familyID")
         UserDefaults.standard.removeObject(forKey: "nelly.sync.deviceName")
+        UserDefaults.standard.removeObject(forKey: "nelly.sync.baselineCaptured")
+        UserDefaults.standard.removeObject(forKey: "nelly.sync.ignoredExistingIDs")
         statusMessage = "Disconnected on this iPhone. Local videos are unchanged."
     }
 
