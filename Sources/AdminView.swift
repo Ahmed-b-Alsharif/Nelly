@@ -372,17 +372,20 @@ struct AdminView: View {
             defer { if access { selectedURL.stopAccessingSecurityScopedResource() } }
 
             if mode == .backup {
-                guard selectedURL.lastPathComponent == "NellyBackup.json" else {
+                let selectedIsFolder = (try? selectedURL.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true
+                let backupFolder = selectedIsFolder
+                    ? selectedURL
+                    : selectedURL.deletingLastPathComponent()
+                if !selectedIsFolder && selectedURL.lastPathComponent != "NellyBackup.json" {
                     throw AdminImportError.expectedBackupManifest
                 }
                 var restoreError: Error?
                 var restoredCount = 0
                 let coordinator = NSFileCoordinator()
                 var coordinationError: NSError?
-                coordinator.coordinate(readingItemAt: selectedURL, options: [], error: &coordinationError) { readableManifestURL in
+                coordinator.coordinate(readingItemAt: backupFolder, options: [], error: &coordinationError) { readableBackupFolder in
                     do {
-                        let backupFolder = readableManifestURL.deletingLastPathComponent()
-                        restoredCount = try NellyBackupRestorer.restore(from: backupFolder, into: library)
+                        restoredCount = try NellyBackupRestorer.restore(from: readableBackupFolder, into: library)
                     } catch { restoreError = error }
                 }
                 if let coordinationError { throw coordinationError }
@@ -631,10 +634,10 @@ private struct NellyImportDocumentPicker: UIViewControllerRepresentable {
     }
 
     func makeUIViewController(context: Context) -> UIDocumentPickerViewController {
-        // Files providers do not always advertise exported JSON manifests as UTType.json.
-        // Accept generic files in backup mode, then validate the exact manifest name in the handler.
+        // Allow either the backup folder or its manifest file to be selected.
+        // Include JSON and generic data so Files providers with varying type metadata work.
         let types: [UTType] = mode == .backup
-            ? [.item]
+            ? [.folder, .json, .data]
             : [.video, .movie, .mpeg4Movie, .quickTimeMovie]
         let picker = UIDocumentPickerViewController(
             forOpeningContentTypes: types,
