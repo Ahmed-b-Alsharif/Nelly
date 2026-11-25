@@ -25,18 +25,20 @@ The deployment config uses the D1 database and KV namespace already created for 
 
 Cloudflare's published Workers Free limits currently include 100,000 Worker requests per day. Workers KV currently includes 1 GB of storage, 100,000 key reads per day, 1,000 key writes per day, and 1,000 key deletes per day. These are account-level ceilings shared with other Cloudflare projects, not reserved capacity for Nelly. A 100 MiB video uses up to 25 KV chunk writes, up to 25 chunk reads on the receiving phone, and up to 25 deletes when the relay is cleared, in addition to metadata and verification operations. Smaller videos use fewer chunks.
 
-On the Workers Free plan, Cloudflare documents that operations fail after a daily KV limit is reached; they do not become paid overage operations on that Free plan. D1 and Worker request limits also apply. Keep the account on the Free plan. If a limit is reached, Nelly must pause sync and keep both phones' local videos; do not upgrade or add billing to continue.
+On the Workers Free plan, Cloudflare documents that operations fail after a daily KV limit is reached; they do not become paid overage operations on that Free plan. D1 and Worker request limits also apply. Keep the account on the Free plan. If a limit is reached, sync stops and local files remain untouched; do not upgrade or add billing to continue.
 
 These published limits can change. Check Cloudflare's current [KV limits](https://developers.cloudflare.com/kv/platform/limits/), [KV pricing](https://developers.cloudflare.com/kv/platform/pricing/), and [Workers limits](https://developers.cloudflare.com/workers/platform/limits/) before relying on a larger transfer workload.
 
 ## Deployment
 
 1. Keep the Cloudflare account on the Free plan. Do not add an R2 subscription or enable a paid plan for Nelly.
-2. The actual `wrangler.toml` in this folder binds D1 as `DB` and the existing KV namespace as `RELAY`.
-3. Deploy this folder as Worker `nelly-sync` from the connected Git repository, with the root directory set to `cloud` and deploy command `npx wrangler deploy`.
-4. The Worker automatically creates the required D1 tables on its first request; `schema.sql` is kept as the readable schema reference.
-5. Confirm the Worker health endpoint returns `{"service":"Nelly Sync","status":"ok",...}`.
-6. The iOS client is already configured for `https://nelly-sync.aalshari.workers.dev`; build the iOS app after the Worker deployment succeeds.
+2. The connected Cloudflare Worker must build from the Git branch `build/nelly-ios-app` (not `main`), because the Worker source folder exists on that branch.
+3. Set the Cloudflare Workers Build root directory to `/cloud`, with deploy command `npx wrangler deploy` and no build command.
+4. The actual `wrangler.toml` in this folder binds D1 as `DB` and the existing KV namespace as `RELAY`.
+5. Deploy this folder as Worker `nelly-sync` from the connected Git repository.
+6. The Worker automatically creates the required D1 tables on its first request; `schema.sql` is kept as the readable schema reference.
+7. Confirm the Worker health endpoint returns `{"service":"Nelly Sync","status":"ok",...}`.
+8. The iOS client is already configured for `https://nelly-sync.aalshari.workers.dev`; build the iOS app after the Worker deployment succeeds.
 
 Do not put Cloudflare API tokens, account secrets, or device tokens in this repository.
 
