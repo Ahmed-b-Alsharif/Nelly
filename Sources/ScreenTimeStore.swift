@@ -133,7 +133,7 @@ final class ScreenTimeStore: ObservableObject {
         } else if usageDay != today {
             usageDay = today
             usedSeconds = 0
-            resetAt = Date().timeIntervalSince1970
+            resetAt = 0
             isTimerRunning = false
             isPlaying = false
         }
