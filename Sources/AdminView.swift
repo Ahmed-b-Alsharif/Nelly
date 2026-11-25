@@ -212,8 +212,20 @@ struct AdminView: View {
             }
             .sheet(item: $activeFilePicker) { mode in
                 NellyImportDocumentPicker(mode: mode) { selectedURL in
-                    handleImportedFile(selectedURL, mode: mode)
+                    // Keep the security-scoped grant alive, dismiss the picker first,
+                    // then start the potentially lengthy file-copy operation.
+                    let hasAccess = selectedURL.startAccessingSecurityScopedResource()
                     activeFilePicker = nil
+                    if mode == .backup {
+                        backupRestoreMessage = "Backup selected. Checking the manifest and videos…"
+                    }
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+                        handleImportedFile(
+                            selectedURL,
+                            mode: mode,
+                            securityAccessAlreadyStarted: hasAccess
+                        )
+                    }
                 }
                 .ignoresSafeArea()
             }
@@ -366,9 +378,15 @@ struct AdminView: View {
         }
     }
 
-    private func handleImportedFile(_ selectedURL: URL, mode: AdminFileImportMode) {
+    private func handleImportedFile(
+        _ selectedURL: URL,
+        mode: AdminFileImportMode,
+        securityAccessAlreadyStarted: Bool = false
+    ) {
         do {
-            let access = selectedURL.startAccessingSecurityScopedResource()
+            let access = securityAccessAlreadyStarted
+                ? true
+                : selectedURL.startAccessingSecurityScopedResource()
             defer { if access { selectedURL.stopAccessingSecurityScopedResource() } }
 
             if mode == .backup {
