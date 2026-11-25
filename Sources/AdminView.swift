@@ -372,17 +372,17 @@ struct AdminView: View {
             defer { if access { selectedURL.stopAccessingSecurityScopedResource() } }
 
             if mode == .backup {
-                let values = try selectedURL.resourceValues(forKeys: [.isDirectoryKey])
-                guard values.isDirectory == true else {
-                    throw AdminImportError.expectedBackupFolder
+                guard selectedURL.lastPathComponent == "NellyBackup.json" else {
+                    throw AdminImportError.expectedBackupManifest
                 }
                 var restoreError: Error?
                 var restoredCount = 0
                 let coordinator = NSFileCoordinator()
                 var coordinationError: NSError?
-                coordinator.coordinate(readingItemAt: selectedURL, options: [], error: &coordinationError) { readableURL in
+                coordinator.coordinate(readingItemAt: selectedURL, options: [], error: &coordinationError) { readableManifestURL in
                     do {
-                        restoredCount = try NellyBackupRestorer.restore(from: readableURL, into: library)
+                        let backupFolder = readableManifestURL.deletingLastPathComponent()
+                        restoredCount = try NellyBackupRestorer.restore(from: backupFolder, into: library)
                     } catch { restoreError = error }
                 }
                 if let coordinationError { throw coordinationError }
@@ -566,9 +566,9 @@ struct AdminView: View {
 }
 
 private enum AdminImportError: LocalizedError {
-    case expectedBackupFolder
+    case expectedBackupManifest
     var errorDescription: String? {
-        "Select the Nelly backup folder that contains NellyBackup.json and the Videos folder."
+        "Select the NellyBackup.json file inside your Nelly backup folder. Keep the Videos folder beside it."
     }
 }
 
@@ -632,7 +632,7 @@ private struct NellyImportDocumentPicker: UIViewControllerRepresentable {
 
     func makeUIViewController(context: Context) -> UIDocumentPickerViewController {
         let types: [UTType] = mode == .backup
-            ? [.folder]
+            ? [.json]
             : [.video, .movie, .mpeg4Movie, .quickTimeMovie]
         let picker = UIDocumentPickerViewController(
             forOpeningContentTypes: types,
