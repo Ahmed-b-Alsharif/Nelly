@@ -159,7 +159,7 @@ struct AdminView: View {
                     Text(screenTime.isTimerRunning
                          ? "Time remaining: \(screenTime.remainingTimeText)"
                          : "Countdown is not running. Choose a limit and confirm to start.")
-                        .font(.system(.body, design: .rounded).weight(.semibold))
+                        .font(.system(.body, design: .rounded, weight: .semibold))
                         .foregroundStyle(screenTime.isTimerRunning ? .primary : .secondary)
                     Button("Restart today's countdown") { screenTime.resetToday() }
                     Button("Parent override — allow viewing now") { screenTime.parentOverride() }
