@@ -239,24 +239,24 @@ final class NellySyncManager: ObservableObject {
     }
 
     private func completeUpload(_ videoID: String) async throws {
-        for attempt in 0..<6 {
+        for attempt in 0..<13 {
             do {
                 _ = try await request(path: "/v1/videos/\(videoID)/complete", method: "POST",
                                       body: Data("{}".utf8))
                 return
-            } catch SyncError.serverRejected(let code) where code == 425 && attempt < 5 {
-                try await Task.sleep(for: .seconds(2))
+            } catch SyncError.serverRejected(let code) where code == 425 && attempt < 12 {
+                try await Task.sleep(for: .seconds(5))
             }
         }
         throw SyncError.serverRejected(425)
     }
 
     private func downloadChunk(videoID: String, index: Int) async throws -> Data {
-        for attempt in 0..<6 {
+        for attempt in 0..<13 {
             do {
                 return try await request(path: "/v1/videos/\(videoID)?chunk=\(index)", method: "GET")
-            } catch SyncError.serverRejected(let code) where code == 404 && attempt < 5 {
-                try await Task.sleep(for: .seconds(2))
+            } catch SyncError.serverRejected(let code) where code == 404 && attempt < 12 {
+                try await Task.sleep(for: .seconds(5))
             }
         }
         throw SyncError.serverRejected(404)
