@@ -571,12 +571,6 @@ private enum AdminImportError: LocalizedError {
     }
 }
 
-private enum AdminImportError: LocalizedError {
-    case expectedBackupFolder
-    var errorDescription: String? {
-        "Select the Nelly backup folder that contains NellyBackup.json and the Videos folder."
-    }
-}
 
 private struct VideoEditorView: View {
     @EnvironmentObject private var library: LibraryStore
