@@ -4,7 +4,10 @@ import PhotosUI
 import CoreTransferable
 import UniformTypeIdentifiers
 
-private enum AdminFileImportMode: Equatable { case video, backup }
+private enum AdminFileImportMode: String, Identifiable, Equatable {
+    case video, backup
+    var id: String { rawValue }
+}
 
 private struct ImportedMovie: Transferable {
     let url: URL
@@ -40,14 +43,12 @@ struct AdminView: View {
     @State private var selectedPhotos: [PhotosPickerItem] = []
     @State private var isImportingPhotos = false
     @State private var photoImportProgress = 0
-    @State private var showImporter = false
     @State private var newPIN = ""
     @State private var showHistory = false
     @State private var editingVideo: VideoItem?
     @State private var backupFolderURL: URL?
     @State private var showBackupExporter = false
-    @State private var showBackupImporter = false
-    @State private var fileImportMode: AdminFileImportMode = .video
+    @State private var activeFilePicker: AdminFileImportMode?
     @State private var pairingCodeInput = ""
     @State private var showUploadExistingConfirmation = false
     @State private var syncDeviceName = "Parent iPhone"
@@ -107,8 +108,7 @@ struct AdminView: View {
                             .foregroundStyle(.secondary)
                     }
                     Button {
-                        fileImportMode = .video
-                        showImporter = true
+                        activeFilePicker = .video
                     } label: {
                         Label("Import video from Files", systemImage: "folder")
                     }
@@ -209,64 +209,11 @@ struct AdminView: View {
                 ToolbarItem(placement: .topBarLeading) { EditButton() }
                 ToolbarItem(placement: .topBarTrailing) { Button("Done") { dismiss() } }
             }
-            .fileImporter(
-                isPresented: Binding(
-                    get: { showImporter || showBackupImporter },
-                    set: { presented in
-                        if !presented {
-                            showImporter = false
-                            showBackupImporter = false
-                        }
-                    }
-                ),
-                allowedContentTypes: fileImportMode == .backup
-                    ? [.folder]
-                    : [.movie, .mpeg4Movie, .quickTimeMovie, .video],
-                allowsMultipleSelection: false
-            ) { result in
-                do {
-                    let urls = try result.get()
-                    guard let selectedURL = urls.first else { return }
-                    let access = selectedURL.startAccessingSecurityScopedResource()
-                    defer { if access { selectedURL.stopAccessingSecurityScopedResource() } }
-
-                    if fileImportMode == .backup {
-                        let values = try selectedURL.resourceValues(forKeys: [.isDirectoryKey])
-                        guard values.isDirectory == true else {
-                            throw AdminImportError.expectedBackupFolder
-                        }
-                        var restoreError: Error?
-                        var restoredCount = 0
-                        let coordinator = NSFileCoordinator()
-                        var coordinationError: NSError?
-                        coordinator.coordinate(readingItemAt: selectedURL, options: [], error: &coordinationError) { readableURL in
-                            do {
-                                restoredCount = try NellyBackupRestorer.restore(from: readableURL, into: library)
-                            } catch { restoreError = error }
-                        }
-                        if let coordinationError { throw coordinationError }
-                        if let restoreError { throw restoreError }
-                        message = restoredCount == 0
-                            ? "All items from this backup are already in your library."
-                            : "Restored \(restoredCount) item(s). Existing videos were kept unchanged."
-                    } else {
-                        var importError: Error?
-                        let coordinator = NSFileCoordinator()
-                        var coordinationError: NSError?
-                        coordinator.coordinate(readingItemAt: selectedURL, options: [], error: &coordinationError) { readableURL in
-                            do {
-                                try library.importVideo(from: readableURL, fileName: selectedURL.lastPathComponent)
-                            } catch { importError = error }
-                        }
-                        if let coordinationError { throw coordinationError }
-                        if let importError { throw importError }
-                        message = "Video imported successfully and saved inside Nelly."
-                    }
-                } catch {
-                    message = fileImportMode == .backup
-                        ? "Restore failed: \(error.localizedDescription)"
-                        : "Could not import video: \(error.localizedDescription)"
+            .sheet(item: $activeFilePicker) { mode in
+                NellyImportDocumentPicker(mode: mode) { selectedURL in
+                    handleImportedFile(selectedURL, mode: mode)
                 }
+                .ignoresSafeArea()
             }
             .onChange(of: selectedPhotos) { _, items in
                 guard !items.isEmpty, !isImportingPhotos else { return }
@@ -400,14 +347,57 @@ struct AdminView: View {
                 Label("Export a full backup", systemImage: "externaldrive.fill")
             }
             Button {
-                fileImportMode = .backup
-                showBackupImporter = true
+                activeFilePicker = .backup
             } label: {
                 Label("Restore / upload a backup", systemImage: "arrow.down.doc")
             }
             Text("Export saves a separate copy. Restore merges items from a saved Nelly backup, skips duplicate IDs, and never replaces or deletes existing videos.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
+        }
+    }
+
+    private func handleImportedFile(_ selectedURL: URL, mode: AdminFileImportMode) {
+        do {
+            let access = selectedURL.startAccessingSecurityScopedResource()
+            defer { if access { selectedURL.stopAccessingSecurityScopedResource() } }
+
+            if mode == .backup {
+                let values = try selectedURL.resourceValues(forKeys: [.isDirectoryKey])
+                guard values.isDirectory == true else {
+                    throw AdminImportError.expectedBackupFolder
+                }
+                var restoreError: Error?
+                var restoredCount = 0
+                let coordinator = NSFileCoordinator()
+                var coordinationError: NSError?
+                coordinator.coordinate(readingItemAt: selectedURL, options: [], error: &coordinationError) { readableURL in
+                    do {
+                        restoredCount = try NellyBackupRestorer.restore(from: readableURL, into: library)
+                    } catch { restoreError = error }
+                }
+                if let coordinationError { throw coordinationError }
+                if let restoreError { throw restoreError }
+                message = restoredCount == 0
+                    ? "All items from this backup are already in your library."
+                    : "Restored \(restoredCount) item(s). Existing videos were kept unchanged."
+            } else {
+                var importError: Error?
+                let coordinator = NSFileCoordinator()
+                var coordinationError: NSError?
+                coordinator.coordinate(readingItemAt: selectedURL, options: [], error: &coordinationError) { readableURL in
+                    do {
+                        try library.importVideo(from: readableURL, fileName: selectedURL.lastPathComponent)
+                    } catch { importError = error }
+                }
+                if let coordinationError { throw coordinationError }
+                if let importError { throw importError }
+                message = "Video imported successfully and saved inside Nelly."
+            }
+        } catch {
+            message = mode == .backup
+                ? "Restore failed: \(error.localizedDescription)"
+                : "Could not import video: \(error.localizedDescription)"
         }
     }
 
@@ -614,6 +604,44 @@ private struct VideoEditorView: View {
                     }
                 }
             }
+        }
+    }
+}
+
+
+// Uses Apple's document picker directly instead of SwiftUI fileImporter.
+// This allows selecting a complete backup directory as well as individual videos.
+private struct NellyImportDocumentPicker: UIViewControllerRepresentable {
+    let mode: AdminFileImportMode
+    let onPick: (URL) -> Void
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(onPick: onPick)
+    }
+
+    func makeUIViewController(context: Context) -> UIDocumentPickerViewController {
+        let types: [UTType] = mode == .backup
+            ? [.folder]
+            : [.movie, .mpeg4Movie, .quickTimeMovie]
+        let picker = UIDocumentPickerViewController(
+            forOpeningContentTypes: types,
+            asCopy: mode == .video
+        )
+        picker.delegate = context.coordinator
+        picker.allowsMultipleSelection = false
+        picker.shouldShowFileExtensions = true
+        return picker
+    }
+
+    func updateUIViewController(_ controller: UIDocumentPickerViewController, context: Context) {}
+
+    final class Coordinator: NSObject, UIDocumentPickerDelegate {
+        private let onPick: (URL) -> Void
+        init(onPick: @escaping (URL) -> Void) { self.onPick = onPick }
+
+        func documentPicker(_ controller: UIDocumentPickerViewController, didPickDocumentsAt urls: [URL]) {
+            guard let url = urls.first else { return }
+            onPick(url)
         }
     }
 }
