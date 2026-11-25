@@ -57,19 +57,27 @@ struct HomeView: View {
             prepareRandomPlayback()
         }
         .task {
-            await syncManager.syncNow(library: library, screenTime: screenTime)
+            // Cloud sync must never delay the one-second screen-time clock.
+            Task {
+                await syncManager.syncNow(library: library, screenTime: screenTime)
+            }
             var syncTicks = 0
             while !Task.isCancelled {
-                try? await Task.sleep(for: .seconds(1))
-                if scenePhase == .active {
-                    syncTicks += 1
-                    if syncTicks >= 30 {
-                        syncTicks = 0
+                do {
+                    try await Task.sleep(for: .seconds(1))
+                } catch {
+                    break
+                }
+                guard scenePhase == .active else { continue }
+                if screenTime.isTimerRunning {
+                    screenTime.tick()
+                }
+                syncTicks += 1
+                if syncTicks >= 30 {
+                    syncTicks = 0
+                    Task {
                         await syncManager.syncNow(library: library, screenTime: screenTime)
                     }
-                }
-                if scenePhase == .active && screenTime.isTimerRunning && !library.activeVideos.isEmpty {
-                    screenTime.tick()
                 }
             }
         }
