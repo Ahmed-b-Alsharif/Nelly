@@ -212,6 +212,7 @@ struct AdminView: View {
             .sheet(item: $activeFilePicker) { mode in
                 NellyImportDocumentPicker(mode: mode) { selectedURL in
                     handleImportedFile(selectedURL, mode: mode)
+                    activeFilePicker = nil
                 }
                 .ignoresSafeArea()
             }
@@ -622,7 +623,7 @@ private struct NellyImportDocumentPicker: UIViewControllerRepresentable {
     func makeUIViewController(context: Context) -> UIDocumentPickerViewController {
         let types: [UTType] = mode == .backup
             ? [.folder]
-            : [.movie, .mpeg4Movie, .quickTimeMovie]
+            : [.video, .movie, .mpeg4Movie, .quickTimeMovie]
         let picker = UIDocumentPickerViewController(
             forOpeningContentTypes: types,
             asCopy: mode == .video
