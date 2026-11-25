@@ -196,20 +196,6 @@ struct AdminView: View {
                         .foregroundStyle(.secondary)
                 }
             }
-            .onAppear { draftDailyLimit = screenTime.dailyLimit }
-            .navigationTitle("Nelly Admin")
-            .alert("Upload all existing videos?", isPresented: $showUploadExistingConfirmation) {
-                Button("Cancel", role: .cancel) {}
-                Button("Upload all") {
-                    Task { await syncManager.syncExistingLibrary(library: library, screenTime: screenTime) }
-                }
-            } message: {
-                Text("This uploads every existing local video from this iPhone to the temporary relay. Your local videos stay on this phone. Continue only after the one-video test has worked.")
-            }
-            .toolbar {
-                ToolbarItem(placement: .topBarLeading) { EditButton() }
-                ToolbarItem(placement: .topBarTrailing) { Button("Done") { dismiss() } }
-            }
             .sheet(item: $activeFilePicker) { mode in
                 NellyImportDocumentPicker(mode: mode) { selectedURL in
                     // Keep the security-scoped grant alive, dismiss the picker first,
@@ -228,6 +214,20 @@ struct AdminView: View {
                     }
                 }
                 .ignoresSafeArea()
+            }
+            .onAppear { draftDailyLimit = screenTime.dailyLimit }
+            .navigationTitle("Nelly Admin")
+            .alert("Upload all existing videos?", isPresented: $showUploadExistingConfirmation) {
+                Button("Cancel", role: .cancel) {}
+                Button("Upload all") {
+                    Task { await syncManager.syncExistingLibrary(library: library, screenTime: screenTime) }
+                }
+            } message: {
+                Text("This uploads every existing local video from this iPhone to the temporary relay. Your local videos stay on this phone. Continue only after the one-video test has worked.")
+            }
+            .toolbar {
+                ToolbarItem(placement: .topBarLeading) { EditButton() }
+                ToolbarItem(placement: .topBarTrailing) { Button("Done") { dismiss() } }
             }
             .onChange(of: selectedPhotos) { _, items in
                 guard !items.isEmpty, !isImportingPhotos else { return }
