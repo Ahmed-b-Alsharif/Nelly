@@ -21,6 +21,14 @@ The deployment config uses the D1 database and KV namespace already created for 
 - If storage or request limits are reached, sync stops and local files remain untouched.
 - KV is eventually consistent. The receiver may need to retry while newly uploaded chunks become visible.
 
+## Free-plan capacity and safety
+
+Cloudflare's published Workers Free limits currently include 100,000 Worker requests per day. Workers KV currently includes 1 GB of storage, 100,000 key reads per day, 1,000 key writes per day, and 1,000 key deletes per day. These are account-level ceilings shared with other Cloudflare projects, not reserved capacity for Nelly. A 100 MiB video uses up to 25 KV chunk writes, up to 25 chunk reads on the receiving phone, and up to 25 deletes when the relay is cleared, in addition to metadata and verification operations. Smaller videos use fewer chunks.
+
+On the Workers Free plan, Cloudflare documents that operations fail after a daily KV limit is reached; they do not become paid overage operations on that Free plan. D1 and Worker request limits also apply. Keep the account on the Free plan. If a limit is reached, Nelly must pause sync and keep both phones' local videos; do not upgrade or add billing to continue.
+
+These published limits can change. Check Cloudflare's current [KV limits](https://developers.cloudflare.com/kv/platform/limits/), [KV pricing](https://developers.cloudflare.com/kv/platform/pricing/), and [Workers limits](https://developers.cloudflare.com/workers/platform/limits/) before relying on a larger transfer workload.
+
 ## Deployment
 
 1. Keep the Cloudflare account on the Free plan. Do not add an R2 subscription or enable a paid plan for Nelly.
