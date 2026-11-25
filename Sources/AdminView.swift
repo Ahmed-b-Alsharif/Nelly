@@ -49,6 +49,7 @@ struct AdminView: View {
     @State private var backupFolderURL: URL?
     @State private var showBackupExporter = false
     @State private var activeFilePicker: AdminFileImportMode?
+    @State private var backupRestoreMessage = ""
     @State private var pairingCodeInput = ""
     @State private var showUploadExistingConfirmation = false
     @State private var syncDeviceName = "Parent iPhone"
@@ -355,6 +356,13 @@ struct AdminView: View {
             Text("Export saves a separate copy. Restore merges items from a saved Nelly backup, skips duplicate IDs, and never replaces or deletes existing videos.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
+            if !backupRestoreMessage.isEmpty {
+                Text(backupRestoreMessage)
+                    .font(.caption)
+                    .foregroundStyle(backupRestoreMessage.hasPrefix("Restore failed:") ? .red : .primary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityElement(children: .combine)
+            }
         }
     }
 
@@ -379,9 +387,9 @@ struct AdminView: View {
                 }
                 if let coordinationError { throw coordinationError }
                 if let restoreError { throw restoreError }
-                message = restoredCount == 0
-                    ? "All items from this backup are already in your library."
-                    : "Restored \(restoredCount) item(s). Existing videos were kept unchanged."
+                backupRestoreMessage = restoredCount == 0
+                    ? "Restore finished: all items from this backup are already in this library."
+                    : "Restore complete: \(restoredCount) item(s) restored. Existing videos were kept unchanged."
             } else {
                 var importError: Error?
                 let coordinator = NSFileCoordinator()
@@ -396,9 +404,11 @@ struct AdminView: View {
                 message = "Video imported successfully and saved inside Nelly."
             }
         } catch {
-            message = mode == .backup
-                ? "Restore failed: \(error.localizedDescription)"
-                : "Could not import video: \(error.localizedDescription)"
+            if mode == .backup {
+                backupRestoreMessage = "Restore failed: \(error.localizedDescription)"
+            } else {
+                message = "Could not import video: \(error.localizedDescription)"
+            }
         }
     }
 
