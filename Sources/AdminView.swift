@@ -203,29 +203,63 @@ struct AdminView: View {
                 ToolbarItem(placement: .topBarLeading) { EditButton() }
                 ToolbarItem(placement: .topBarTrailing) { Button("Done") { dismiss() } }
             }
-            .fileImporter(isPresented: $showBackupImporter, allowedContentTypes: [.folder], allowsMultipleSelection: false) { result in
+            .fileImporter(
+                isPresented: Binding(
+                    get: { showImporter || showBackupImporter },
+                    set: { presented in
+                        if !presented {
+                            showImporter = false
+                            showBackupImporter = false
+                        }
+                    }
+                ),
+                allowedContentTypes: showBackupImporter
+                    ? [.folder]
+                    : [.movie, .mpeg4Movie, .quickTimeMovie, .video],
+                allowsMultipleSelection: false
+            ) { result in
                 do {
                     let urls = try result.get()
-                    guard let folder = urls.first else { return }
-                    let access = folder.startAccessingSecurityScopedResource()
-                    defer { if access { folder.stopAccessingSecurityScopedResource() } }
-                    let restored = try NellyBackupRestorer.restore(from: folder, into: library)
-                    message = restored == 0
-                        ? "All items from this backup are already in your library."
-                        : "Restored \(restored) item(s). Existing videos were kept unchanged."
+                    guard let selectedURL = urls.first else { return }
+                    let access = selectedURL.startAccessingSecurityScopedResource()
+                    defer { if access { selectedURL.stopAccessingSecurityScopedResource() } }
+
+                    if showBackupImporter {
+                        let values = try selectedURL.resourceValues(forKeys: [.isDirectoryKey])
+                        guard values.isDirectory == true else {
+                            throw AdminImportError.expectedBackupFolder
+                        }
+                        var restoreError: Error?
+                        var restoredCount = 0
+                        let coordinator = NSFileCoordinator()
+                        var coordinationError: NSError?
+                        coordinator.coordinate(readingItemAt: selectedURL, options: [], error: &coordinationError) { readableURL in
+                            do {
+                                restoredCount = try NellyBackupRestorer.restore(from: readableURL, into: library)
+                            } catch { restoreError = error }
+                        }
+                        if let coordinationError { throw coordinationError }
+                        if let restoreError { throw restoreError }
+                        message = restoredCount == 0
+                            ? "All items from this backup are already in your library."
+                            : "Restored \(restoredCount) item(s). Existing videos were kept unchanged."
+                    } else {
+                        var importError: Error?
+                        let coordinator = NSFileCoordinator()
+                        var coordinationError: NSError?
+                        coordinator.coordinate(readingItemAt: selectedURL, options: [], error: &coordinationError) { readableURL in
+                            do {
+                                try library.importVideo(from: readableURL, fileName: selectedURL.lastPathComponent)
+                            } catch { importError = error }
+                        }
+                        if let coordinationError { throw coordinationError }
+                        if let importError { throw importError }
+                        message = "Video imported successfully and saved inside Nelly."
+                    }
                 } catch {
-                    message = "Restore failed: \(error.localizedDescription)"
-                }
-            }
-            .fileImporter(isPresented: $showImporter, allowedContentTypes: [.movie, .mpeg4Movie, .video]) { result in
-                do {
-                    let url = try result.get()
-                    let access = url.startAccessingSecurityScopedResource()
-                    defer { if access { url.stopAccessingSecurityScopedResource() } }
-                    try library.importVideo(from: url, fileName: url.lastPathComponent)
-                    message = "Video imported."
-                } catch {
-                    message = "Could not import video: \(error.localizedDescription)"
+                    message = showBackupImporter
+                        ? "Restore failed: \(error.localizedDescription)"
+                        : "Could not import video: \(error.localizedDescription)"
                 }
             }
             .onChange(of: selectedPhotos) { _, items in
@@ -520,6 +554,13 @@ struct AdminView: View {
         if let title = video.title, !title.isEmpty { return title }
         if video.kind == .file { return (video.value as NSString).lastPathComponent }
         return URL(string: video.value)?.host ?? "Video"
+    }
+}
+
+private enum AdminImportError: LocalizedError {
+    case expectedBackupFolder
+    var errorDescription: String? {
+        "Select the Nelly backup folder that contains NellyBackup.json and the Videos folder."
     }
 }
 
