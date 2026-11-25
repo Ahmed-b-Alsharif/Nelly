@@ -31,6 +31,8 @@ struct HomeView: View {
                 emptyState
             } else if screenTime.isLimitReached {
                 limitScreen
+            } else if !screenTime.isTimerRunning {
+                waitingForLimitScreen
             } else if showGrid {
                 videoGrid
             } else {
@@ -308,6 +310,27 @@ struct HomeView: View {
             Text("Nelly").font(.largeTitle.bold()).foregroundStyle(.white)
             Text("Your videos will be here").foregroundStyle(.white.opacity(0.7))
         }
+    }
+
+    private var waitingForLimitScreen: some View {
+        VStack(spacing: 18) {
+            Image(systemName: "timer")
+                .font(.system(size: 62, weight: .light))
+                .foregroundStyle(.white)
+            Text("Ready when you are!")
+                .font(.system(size: 30, weight: .bold, design: .rounded))
+                .foregroundStyle(.white)
+            Text("Ask a parent to choose your screen time and press Confirm.")
+                .font(.system(size: 16, weight: .medium))
+                .foregroundStyle(.white.opacity(0.85))
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 24)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(
+            LinearGradient(colors: [Color.purple, Color.pink.opacity(0.85), Color.purple],
+                           startPoint: .topLeading, endPoint: .bottomTrailing)
+        )
     }
 
     private var limitScreen: some View {
