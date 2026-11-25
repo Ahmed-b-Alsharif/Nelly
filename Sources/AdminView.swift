@@ -48,6 +48,7 @@ struct AdminView: View {
     @State private var pairingCodeInput = ""
     @State private var showUploadExistingConfirmation = false
     @State private var syncDeviceName = "Parent iPhone"
+    @State private var draftDailyLimit = 45
 
     var body: some View {
         NavigationStack {
@@ -150,10 +151,17 @@ struct AdminView: View {
                 }
 
                 Section("Screen time") {
-                    Stepper("Daily limit: \(screenTime.dailyLimit) minutes", value: $screenTime.dailyLimit, in: 1...240, step: 1)
-                    Text("Remaining today: \(screenTime.remainingSeconds / 60) min \(screenTime.remainingSeconds % 60) sec")
-                        .foregroundStyle(.secondary)
-                    Button("Reset today's viewing time") { screenTime.resetToday() }
+                    Stepper("Daily limit: \(draftDailyLimit) minutes", value: $draftDailyLimit, in: 1...240, step: 1)
+                    Button("Confirm & start countdown") {
+                        screenTime.confirmDailyLimit(minutes: draftDailyLimit)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    Text(screenTime.isTimerRunning
+                         ? "Time remaining: \(screenTime.remainingTimeText)"
+                         : "Countdown is not running. Choose a limit and confirm to start.")
+                        .font(.system(.body, design: .rounded).weight(.semibold))
+                        .foregroundStyle(screenTime.isTimerRunning ? .primary : .secondary)
+                    Button("Restart today's countdown") { screenTime.resetToday() }
                     Button("Parent override — allow viewing now") { screenTime.parentOverride() }
                 }
 
@@ -181,6 +189,7 @@ struct AdminView: View {
                         .foregroundStyle(.secondary)
                 }
             }
+            .onAppear { draftDailyLimit = screenTime.dailyLimit }
             .navigationTitle("Nelly Admin")
             .alert("Upload all existing videos?", isPresented: $showUploadExistingConfirmation) {
                 Button("Cancel", role: .cancel) {}
