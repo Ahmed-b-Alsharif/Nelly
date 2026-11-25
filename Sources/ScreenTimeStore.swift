@@ -16,6 +16,9 @@ final class ScreenTimeStore: ObservableObject {
     }
 
     @Published private(set) var isPlaying = true
+    @Published private(set) var isTimerRunning = false {
+        didSet { UserDefaults.standard.set(isTimerRunning, forKey: "nelly.screenTimeRunning") }
+    }
     @Published private(set) var usedSeconds: Int {
         didSet { UserDefaults.standard.set(usedSeconds, forKey: "nelly.usedSeconds") }
     }
@@ -31,6 +34,11 @@ final class ScreenTimeStore: ObservableObject {
 
     var remainingSeconds: Int { max(0, dailyLimit * 60 - usedSeconds) }
     var isLimitReached: Bool { remainingSeconds <= 0 }
+    var remainingTimeText: String {
+        let minutes = remainingSeconds / 60
+        let seconds = remainingSeconds % 60
+        return String(format: "%02d:%02d", minutes, seconds)
+    }
     var sharedUsageDay: String { usageDay }
     var sharedSettingsUpdatedAt: Double { settingsUpdatedAt }
     var sharedResetAt: Double { resetAt }
@@ -39,6 +47,7 @@ final class ScreenTimeStore: ObservableObject {
         let savedLimit = UserDefaults.standard.object(forKey: "nelly.dailyLimitMinutes") as? Int
         storedDailyLimit = min(240, max(1, savedLimit ?? 45))
         usedSeconds = UserDefaults.standard.integer(forKey: "nelly.usedSeconds")
+        isTimerRunning = UserDefaults.standard.bool(forKey: "nelly.screenTimeRunning")
         usageDay = UserDefaults.standard.string(forKey: "nelly.usageDay") ?? ""
         let savedSettingsDate = UserDefaults.standard.double(forKey: "nelly.settingsUpdatedAt")
         settingsUpdatedAt = savedSettingsDate > 0 ? savedSettingsDate : (savedLimit == nil ? 0 : Date().timeIntervalSince1970)
@@ -49,22 +58,38 @@ final class ScreenTimeStore: ObservableObject {
 
     func tick() {
         resetIfNewDay()
-        guard !isLimitReached else { isPlaying = false; return }
+        guard isTimerRunning, !isLimitReached else {
+            if isLimitReached { isTimerRunning = false; isPlaying = false }
+            return
+        }
         usedSeconds += 1
-        if isLimitReached { isPlaying = false }
+        if isLimitReached {
+            isTimerRunning = false
+            isPlaying = false
+        }
     }
 
     func setPlaying(_ value: Bool) { isPlaying = value && !isLimitReached }
 
+    func confirmDailyLimit(minutes: Int) {
+        dailyLimit = minutes
+        resetAt = Date().timeIntervalSince1970
+        usedSeconds = 0
+        isTimerRunning = true
+        isPlaying = true
+    }
+
     func parentOverride() {
         resetAt = Date().timeIntervalSince1970
         usedSeconds = 0
+        isTimerRunning = true
         isPlaying = true
     }
 
     func resetToday() {
         resetAt = Date().timeIntervalSince1970
         usedSeconds = 0
+        isTimerRunning = true
         isPlaying = true
     }
 
@@ -89,6 +114,7 @@ final class ScreenTimeStore: ObservableObject {
                 usedSeconds = max(usedSeconds, max(0, remoteSeconds))
             }
         }
+        isTimerRunning = settingsUpdatedAt > 0 && resetAt > 0 && !isLimitReached
         if isLimitReached { isPlaying = false }
     }
 
@@ -108,6 +134,8 @@ final class ScreenTimeStore: ObservableObject {
             usageDay = today
             usedSeconds = 0
             resetAt = Date().timeIntervalSince1970
+            isTimerRunning = false
+            isPlaying = false
         }
     }
 }
