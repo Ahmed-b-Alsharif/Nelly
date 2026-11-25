@@ -4,6 +4,8 @@ import PhotosUI
 import CoreTransferable
 import UniformTypeIdentifiers
 
+private enum AdminFileImportMode: Equatable { case video, backup }
+
 private struct ImportedMovie: Transferable {
     let url: URL
     static var transferRepresentation: some TransferRepresentation {
@@ -45,6 +47,7 @@ struct AdminView: View {
     @State private var backupFolderURL: URL?
     @State private var showBackupExporter = false
     @State private var showBackupImporter = false
+    @State private var fileImportMode: AdminFileImportMode = .video
     @State private var pairingCodeInput = ""
     @State private var showUploadExistingConfirmation = false
     @State private var syncDeviceName = "Parent iPhone"
@@ -103,7 +106,10 @@ struct AdminView: View {
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
-                    Button { showImporter = true } label: {
+                    Button {
+                        fileImportMode = .video
+                        showImporter = true
+                    } label: {
                         Label("Import video from Files", systemImage: "folder")
                     }
                     if !message.isEmpty {
@@ -213,7 +219,7 @@ struct AdminView: View {
                         }
                     }
                 ),
-                allowedContentTypes: showBackupImporter
+                allowedContentTypes: fileImportMode == .backup
                     ? [.folder]
                     : [.movie, .mpeg4Movie, .quickTimeMovie, .video],
                 allowsMultipleSelection: false
@@ -224,7 +230,7 @@ struct AdminView: View {
                     let access = selectedURL.startAccessingSecurityScopedResource()
                     defer { if access { selectedURL.stopAccessingSecurityScopedResource() } }
 
-                    if showBackupImporter {
+                    if fileImportMode == .backup {
                         let values = try selectedURL.resourceValues(forKeys: [.isDirectoryKey])
                         guard values.isDirectory == true else {
                             throw AdminImportError.expectedBackupFolder
@@ -257,7 +263,7 @@ struct AdminView: View {
                         message = "Video imported successfully and saved inside Nelly."
                     }
                 } catch {
-                    message = showBackupImporter
+                    message = fileImportMode == .backup
                         ? "Restore failed: \(error.localizedDescription)"
                         : "Could not import video: \(error.localizedDescription)"
                 }
@@ -394,6 +400,7 @@ struct AdminView: View {
                 Label("Export a full backup", systemImage: "externaldrive.fill")
             }
             Button {
+                fileImportMode = .backup
                 showBackupImporter = true
             } label: {
                 Label("Restore / upload a backup", systemImage: "arrow.down.doc")
@@ -554,6 +561,13 @@ struct AdminView: View {
         if let title = video.title, !title.isEmpty { return title }
         if video.kind == .file { return (video.value as NSString).lastPathComponent }
         return URL(string: video.value)?.host ?? "Video"
+    }
+}
+
+private enum AdminImportError: LocalizedError {
+    case expectedBackupFolder
+    var errorDescription: String? {
+        "Select the Nelly backup folder that contains NellyBackup.json and the Videos folder."
     }
 }
 
