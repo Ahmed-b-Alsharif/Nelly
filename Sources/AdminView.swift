@@ -631,8 +631,10 @@ private struct NellyImportDocumentPicker: UIViewControllerRepresentable {
     }
 
     func makeUIViewController(context: Context) -> UIDocumentPickerViewController {
+        // Files providers do not always advertise exported JSON manifests as UTType.json.
+        // Accept generic files in backup mode, then validate the exact manifest name in the handler.
         let types: [UTType] = mode == .backup
-            ? [.json]
+            ? [.item]
             : [.video, .movie, .mpeg4Movie, .quickTimeMovie]
         let picker = UIDocumentPickerViewController(
             forOpeningContentTypes: types,
