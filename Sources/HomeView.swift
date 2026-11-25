@@ -1,4 +1,5 @@
 import SwiftUI
+import Combine
 
 struct HomeView: View {
     @EnvironmentObject private var library: LibraryStore
@@ -23,6 +24,7 @@ struct HomeView: View {
     @State private var limitPINError = ""
 
     private var isLockedOut: Bool { Date().timeIntervalSince1970 < lockedUntil }
+    private let screenTimeTicker = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
 
     var body: some View {
         ZStack(alignment: .topTrailing) {
@@ -69,9 +71,6 @@ struct HomeView: View {
                     break
                 }
                 guard scenePhase == .active else { continue }
-                if screenTime.isTimerRunning {
-                    screenTime.tick()
-                }
                 syncTicks += 1
                 if syncTicks >= 30 {
                     syncTicks = 0
@@ -80,6 +79,12 @@ struct HomeView: View {
                     }
                 }
             }
+        }
+        .onReceive(screenTimeTicker) { _ in
+            // Drive the countdown from a main-run-loop timer, independently of
+            // the Admin sheet and cloud-sync task lifecycle.
+            guard scenePhase == .active, screenTime.isTimerRunning else { return }
+            screenTime.tick()
         }
         .onChange(of: scenePhase) { _, phase in
             if phase != .active {
