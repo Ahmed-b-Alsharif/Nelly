@@ -66,7 +66,7 @@ struct HomeView: View {
                         await syncManager.syncNow(library: library, screenTime: screenTime)
                     }
                 }
-                if scenePhase == .active && !showAdmin && !showPIN && screenTime.isPlaying && !library.activeVideos.isEmpty {
+                if scenePhase == .active && screenTime.isTimerRunning && !library.activeVideos.isEmpty {
                     screenTime.tick()
                 }
             }
@@ -311,33 +311,107 @@ struct HomeView: View {
     }
 
     private var limitScreen: some View {
-        VStack(spacing: 18) {
-            Image(systemName: "lock.fill").font(.system(size: 54)).foregroundStyle(.pink)
-            Text("Screen time is over").font(.title2.bold())
-            Text("Ask a parent to enter their PIN to continue.").multilineTextAlignment(.center)
-            SecureField("Parent PIN", text: $limitPIN)
-                .keyboardType(.numberPad).textFieldStyle(.roundedBorder)
-                .frame(maxWidth: 240).multilineTextAlignment(.center)
-            if !limitPINError.isEmpty { Text(limitPINError).font(.caption).foregroundStyle(.red) }
-            Button("Parent unlock") {
-                guard pinConfigured, limitPIN == adminPIN else {
-                    limitPIN = ""
-                    limitPINError = "Incorrect PIN. Ask a parent for help."
-                    return
+        GeometryReader { geometry in
+            ZStack {
+                LinearGradient(
+                    colors: [Color(red: 0.30, green: 0.10, blue: 0.72),
+                             Color(red: 0.60, green: 0.18, blue: 0.96),
+                             Color(red: 0.22, green: 0.08, blue: 0.55)],
+                    startPoint: .topLeading, endPoint: .bottomTrailing
+                )
+                Circle()
+                    .fill(Color.pink.opacity(0.82))
+                    .frame(width: geometry.size.width * 1.35)
+                    .offset(y: -geometry.size.height * 0.12)
+                ForEach(0..<18, id: \.self) { index in
+                    RoundedRectangle(cornerRadius: 3)
+                        .fill([Color.yellow, Color.cyan, Color.mint, Color.pink][index % 4])
+                        .frame(width: 13, height: 34)
+                        .rotationEffect(.degrees(Double(index * 29)))
+                        .position(
+                            x: CGFloat((index * 73 + 31) % max(1, Int(geometry.size.width))),
+                            y: CGFloat((index * 97 + 55) % max(1, Int(geometry.size.height * 0.55)))
+                        )
                 }
-                limitPIN = ""
-                limitPINError = ""
-                screenTime.parentOverride()
-                showGrid = false
-                resetFeedToBeginning()
+
+                VStack(spacing: 18) {
+                    Spacer(minLength: 36)
+                    Text("NELLY")
+                        .font(.system(size: 18, weight: .black, design: .rounded))
+                        .tracking(5)
+                        .foregroundStyle(.white.opacity(0.9))
+
+                    HStack(spacing: 16) {
+                        Text("🎸").font(.system(size: 58))
+                        Text("🎤").font(.system(size: 66))
+                        Text("🥁").font(.system(size: 58))
+                    }
+                    .padding(.vertical, 22)
+                    .frame(maxWidth: .infinity)
+                    .background(.white.opacity(0.13), in: RoundedRectangle(cornerRadius: 28))
+                    .overlay(RoundedRectangle(cornerRadius: 28).stroke(.white.opacity(0.28), lineWidth: 2))
+
+                    Image(systemName: "clock.fill")
+                        .font(.system(size: 42, weight: .medium))
+                        .foregroundStyle(.white)
+                        .padding(.top, 8)
+                    Text("Time’s up!")
+                        .font(.system(size: 38, weight: .black, design: .rounded))
+                        .foregroundStyle(.white)
+                    Text("That’s all the screen time for today.")
+                        .font(.system(size: 16, weight: .medium))
+                        .foregroundStyle(.white.opacity(0.9))
+                        .multilineTextAlignment(.center)
+
+                    Spacer(minLength: 8)
+
+                    VStack(spacing: 12) {
+                        Text("Ask a parent to unlock more time")
+                            .font(.system(size: 15, weight: .semibold))
+                            .foregroundStyle(.white)
+                        SecureField("Parent PIN", text: $limitPIN)
+                            .keyboardType(.numberPad)
+                            .textFieldStyle(.roundedBorder)
+                            .frame(maxWidth: 260)
+                            .multilineTextAlignment(.center)
+                        if !limitPINError.isEmpty {
+                            Text(limitPINError).font(.caption).foregroundStyle(.yellow)
+                        }
+                        Button {
+                            guard pinConfigured, limitPIN == adminPIN else {
+                                limitPIN = ""
+                                limitPINError = "Incorrect PIN. Ask a parent for help."
+                                return
+                            }
+                            limitPIN = ""
+                            limitPINError = ""
+                            screenTime.parentOverride()
+                            showGrid = false
+                            resetFeedToBeginning()
+                        } label: {
+                            Text("Parent unlock")
+                                .font(.system(size: 16, weight: .bold))
+                                .foregroundStyle(.purple)
+                                .frame(maxWidth: 260)
+                                .padding(.vertical, 13)
+                                .background(.white, in: Capsule())
+                        }
+                        .disabled(!pinConfigured || limitPIN.isEmpty)
+                        Text("Nelly will be ready when a parent approves more time.")
+                            .font(.footnote)
+                            .foregroundStyle(.white.opacity(0.75))
+                            .multilineTextAlignment(.center)
+                    }
+                    .padding(20)
+                    .frame(maxWidth: .infinity)
+                    .background(.black.opacity(0.16), in: RoundedRectangle(cornerRadius: 24))
+                    .padding(.bottom, 18)
+                }
+                .padding(.horizontal, 22)
             }
-            .buttonStyle(.borderedProminent).tint(.pink)
-            .disabled(!pinConfigured || limitPIN.isEmpty)
-            Text("Nelly stays locked until a parent approves more time.")
-                .font(.footnote).foregroundStyle(.white.opacity(0.65)).multilineTextAlignment(.center)
+            .frame(width: geometry.size.width, height: geometry.size.height)
+            .ignoresSafeArea()
         }
-        .padding(28).frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Color.black).foregroundStyle(.white)
     }
 
     private var pinSheet: some View {
