@@ -120,7 +120,7 @@ struct HomeView: View {
                 LazyVStack(spacing: 0) {
                     ForEach(feedVideos) { item in
                         ZStack {
-                            VideoPlayerView(item: item, isPlaying: screenTime.isPlaying && currentVideoID == item.id && scenePhase == .active)
+                            VideoPlayerView(item: item, isPlaying: screenTime.isPlaying && currentVideoID == item.id && scenePhase == .active && !showAdmin && !showPIN)
                                 .frame(width: geo.size.width, height: geo.size.height)
                                 .clipped()
 
