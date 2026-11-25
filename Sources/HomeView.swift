@@ -89,6 +89,16 @@ struct HomeView: View {
                 Task { await syncManager.syncNow(library: library, screenTime: screenTime) }
             }
         }
+        .onChange(of: screenTime.isLimitReached) { _, reached in
+            if reached {
+                // If a parent leaves Admin open, dismiss it so the child-facing
+                // time-expired screen is actually visible at zero.
+                showAdmin = false
+                showPIN = false
+                limitPIN = ""
+                limitPINError = ""
+            }
+        }
         .onChange(of: library.videos) { _, _ in
             Task { await syncManager.syncNow(library: library, screenTime: screenTime, pushLibraryMetadata: true) }
         }
