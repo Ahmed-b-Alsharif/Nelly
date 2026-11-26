@@ -50,6 +50,9 @@ struct AdminView: View {
     @State private var showBackupExporter = false
     @State private var activeFilePicker: AdminFileImportMode?
     @State private var backupRestoreMessage = ""
+    @State private var pendingBackupFolderURL: URL?
+    @State private var pendingBackupHasSecurityAccess = false
+    @State private var isRestoringBackup = false
     @State private var pairingCodeInput = ""
     @State private var showUploadExistingConfirmation = false
     @State private var syncDeviceName = "Parent iPhone"
@@ -252,14 +255,17 @@ struct AdminView: View {
                 let hasAccess = selectedURL.startAccessingSecurityScopedResource()
                 activeFilePicker = nil
                 if mode == .backup {
-                    backupRestoreMessage = "Backup selected. Checking the manifest and videos…"
-                }
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
-                    handleImportedFile(
-                        selectedURL,
-                        mode: mode,
-                        securityAccessAlreadyStarted: hasAccess
-                    )
+                    pendingBackupFolderURL = selectedURL
+                    pendingBackupHasSecurityAccess = hasAccess
+                    backupRestoreMessage = "Backup folder selected. Tap Upload backup to begin importing its videos."
+                } else {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+                        handleImportedFile(
+                            selectedURL,
+                            mode: mode,
+                            securityAccessAlreadyStarted: hasAccess
+                        )
+                    }
                 }
             }
             .ignoresSafeArea()
@@ -360,12 +366,42 @@ struct AdminView: View {
             Button(action: createLibraryBackup) {
                 Label("Export a full backup", systemImage: "externaldrive.fill")
             }
-            Button {
-                activeFilePicker = .backup
-            } label: {
-                Label("Restore / upload a backup", systemImage: "arrow.down.doc")
+            if pendingBackupFolderURL == nil {
+                Button {
+                    activeFilePicker = .backup
+                } label: {
+                    Label("Choose backup folder", systemImage: "folder.badge.plus")
+                }
+            } else {
+                Label("Backup folder selected", systemImage: "folder.fill")
+                    .foregroundStyle(.secondary)
+                Button {
+                    guard let folder = pendingBackupFolderURL, !isRestoringBackup else { return }
+                    isRestoringBackup = true
+                    backupRestoreMessage = "Uploading backup… checking the manifest and importing videos."
+                    let hasAccess = pendingBackupHasSecurityAccess
+                    pendingBackupFolderURL = nil
+                    pendingBackupHasSecurityAccess = false
+                    Task { @MainActor in
+                        defer { isRestoringBackup = false }
+                        handleImportedFile(folder, mode: .backup, securityAccessAlreadyStarted: hasAccess)
+                    }
+                } label: {
+                    Label(isRestoringBackup ? "Uploading…" : "Upload backup", systemImage: "arrow.up.doc.fill")
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(isRestoringBackup)
+                Button("Choose a different backup") {
+                    if pendingBackupHasSecurityAccess, let folder = pendingBackupFolderURL {
+                        folder.stopAccessingSecurityScopedResource()
+                    }
+                    pendingBackupFolderURL = nil
+                    pendingBackupHasSecurityAccess = false
+                    activeFilePicker = .backup
+                }
+                .disabled(isRestoringBackup)
             }
-            Text("Export saves a separate copy. Restore merges items from a saved Nelly backup, skips duplicate IDs, and never replaces or deletes existing videos.")
+            Text("Choose the Nelly backup folder that contains NellyBackup.json and the Videos folder. Then tap Upload backup. Nelly checks the manifest and imports the videos; duplicate IDs are skipped and existing videos are never replaced or deleted.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
             if !backupRestoreMessage.isEmpty {
@@ -654,8 +690,11 @@ private struct NellyImportDocumentPicker: UIViewControllerRepresentable {
     func makeUIViewController(context: Context) -> UIDocumentPickerViewController {
         // Allow either the backup folder or its manifest file to be selected.
         // Include JSON and generic data so Files providers with varying type metadata work.
+        // Backup restore is folder-based: the manifest and Videos directory must
+        // remain together. Do not offer JSON/data files as alternatives, because
+        // selecting the manifest alone can detach it from its sibling video files.
         let types: [UTType] = mode == .backup
-            ? [.folder, .json, .data]
+            ? [.folder]
             : [.video, .movie, .mpeg4Movie, .quickTimeMovie]
         let picker = UIDocumentPickerViewController(
             forOpeningContentTypes: types,
