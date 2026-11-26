@@ -4,11 +4,6 @@ import PhotosUI
 import CoreTransferable
 import UniformTypeIdentifiers
 
-private enum AdminFileImportMode: String, Identifiable, Equatable {
-    case video, backup
-    var id: String { rawValue }
-}
-
 private struct ImportedMovie: Transferable {
     let url: URL
     static var transferRepresentation: some TransferRepresentation {
@@ -48,11 +43,7 @@ struct AdminView: View {
     @State private var editingVideo: VideoItem?
     @State private var backupFolderURL: URL?
     @State private var showBackupExporter = false
-    @State private var activeFilePicker: AdminFileImportMode?
-    @State private var backupRestoreMessage = ""
-    @State private var pendingBackupFolderURL: URL?
-    @State private var pendingBackupHasSecurityAccess = false
-    @State private var isRestoringBackup = false
+    @State private var showVideoFilePicker = false
     @State private var pairingCodeInput = ""
     @State private var showUploadExistingConfirmation = false
     @State private var syncDeviceName = "Parent iPhone"
@@ -112,9 +103,9 @@ struct AdminView: View {
                             .foregroundStyle(.secondary)
                     }
                     Button {
-                        activeFilePicker = .video
+                        showVideoFilePicker = true
                     } label: {
-                        Label("Import video from Files", systemImage: "folder")
+                        Label("Import multiple videos from Files", systemImage: "folder")
                     }
                     if !message.isEmpty {
                         Text(message).font(.caption).foregroundStyle(.secondary)
@@ -248,24 +239,15 @@ struct AdminView: View {
                 }
             }
         }
-        .sheet(item: $activeFilePicker) { mode in
-            NellyImportDocumentPicker(mode: mode) { selectedURL in
-                // Keep the security-scoped grant alive, dismiss the picker first,
-                // then start the potentially lengthy file-copy operation.
-                let hasAccess = selectedURL.startAccessingSecurityScopedResource()
-                activeFilePicker = nil
-                if mode == .backup {
-                    pendingBackupFolderURL = selectedURL
-                    pendingBackupHasSecurityAccess = hasAccess
-                    backupRestoreMessage = "Backup folder selected. Tap Upload backup to begin importing its videos."
-                } else {
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
-                        handleImportedFile(
-                            selectedURL,
-                            mode: mode,
-                            securityAccessAlreadyStarted: hasAccess
-                        )
-                    }
+        .sheet(isPresented: $showVideoFilePicker) {
+            NellyImportDocumentPicker { selectedURLs in
+                // Start each security-scoped grant before dismissing the picker.
+                let accessibleURLs = selectedURLs.map { url in
+                    (url, url.startAccessingSecurityScopedResource())
+                }
+                showVideoFilePicker = false
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+                    handleImportedVideos(accessibleURLs)
                 }
             }
             .ignoresSafeArea()
@@ -366,106 +348,48 @@ struct AdminView: View {
             Button(action: createLibraryBackup) {
                 Label("Export a full backup", systemImage: "externaldrive.fill")
             }
-            if pendingBackupFolderURL == nil {
-                Button {
-                    activeFilePicker = .backup
-                } label: {
-                    Label("Choose backup folder", systemImage: "folder.badge.plus")
-                }
-            } else {
-                Label("Backup folder selected", systemImage: "folder.fill")
-                    .foregroundStyle(.secondary)
-                Button {
-                    guard let folder = pendingBackupFolderURL, !isRestoringBackup else { return }
-                    isRestoringBackup = true
-                    backupRestoreMessage = "Uploading backup… checking the manifest and importing videos."
-                    let hasAccess = pendingBackupHasSecurityAccess
-                    pendingBackupFolderURL = nil
-                    pendingBackupHasSecurityAccess = false
-                    Task { @MainActor in
-                        defer { isRestoringBackup = false }
-                        handleImportedFile(folder, mode: .backup, securityAccessAlreadyStarted: hasAccess)
-                    }
-                } label: {
-                    Label(isRestoringBackup ? "Uploading…" : "Upload backup", systemImage: "arrow.up.doc.fill")
-                }
-                .buttonStyle(.borderedProminent)
-                .disabled(isRestoringBackup)
-                Button("Choose a different backup") {
-                    if pendingBackupHasSecurityAccess, let folder = pendingBackupFolderURL {
-                        folder.stopAccessingSecurityScopedResource()
-                    }
-                    pendingBackupFolderURL = nil
-                    pendingBackupHasSecurityAccess = false
-                    activeFilePicker = .backup
-                }
-                .disabled(isRestoringBackup)
-            }
-            Text("Choose the Nelly backup folder that contains NellyBackup.json and the Videos folder. Then tap Upload backup. Nelly checks the manifest and imports the videos; duplicate IDs are skipped and existing videos are never replaced or deleted.")
+            Text("Save a copy of your library and its videos to Files. This backup does not change or remove anything in Nelly.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
-            if !backupRestoreMessage.isEmpty {
-                Text(backupRestoreMessage)
-                    .font(.caption)
-                    .foregroundStyle(backupRestoreMessage.hasPrefix("Restore failed:") ? .red : .primary)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .accessibilityElement(children: .combine)
-            }
         }
     }
 
-    private func handleImportedFile(
-        _ selectedURL: URL,
-        mode: AdminFileImportMode,
-        securityAccessAlreadyStarted: Bool = false
-    ) {
-        do {
-            let access = securityAccessAlreadyStarted
-                ? true
-                : selectedURL.startAccessingSecurityScopedResource()
-            defer { if access { selectedURL.stopAccessingSecurityScopedResource() } }
+    private func handleImportedVideos(_ selectedFiles: [(url: URL, hasSecurityAccess: Bool)]) {
+        var imported = 0
+        var failures = 0
 
-            if mode == .backup {
-                let selectedIsFolder = (try? selectedURL.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true
-                let backupFolder = selectedIsFolder
-                    ? selectedURL
-                    : selectedURL.deletingLastPathComponent()
-                if !selectedIsFolder && selectedURL.lastPathComponent != "NellyBackup.json" {
-                    throw AdminImportError.expectedBackupManifest
-                }
-                var restoreError: Error?
-                var restoredCount = 0
-                let coordinator = NSFileCoordinator()
-                var coordinationError: NSError?
-                coordinator.coordinate(readingItemAt: backupFolder, options: [], error: &coordinationError) { readableBackupFolder in
-                    do {
-                        restoredCount = try NellyBackupRestorer.restore(from: readableBackupFolder, into: library)
-                    } catch { restoreError = error }
-                }
-                if let coordinationError { throw coordinationError }
-                if let restoreError { throw restoreError }
-                backupRestoreMessage = restoredCount == 0
-                    ? "Restore finished: all items from this backup are already in this library."
-                    : "Restore complete: \(restoredCount) item(s) restored. Existing videos were kept unchanged."
-            } else {
+        defer {
+            for (url, hasAccess) in selectedFiles where hasAccess {
+                url.stopAccessingSecurityScopedResource()
+            }
+        }
+
+        for (selectedURL, _) in selectedFiles {
+            do {
                 var importError: Error?
                 let coordinator = NSFileCoordinator()
                 var coordinationError: NSError?
                 coordinator.coordinate(readingItemAt: selectedURL, options: [], error: &coordinationError) { readableURL in
                     do {
                         try library.importVideo(from: readableURL, fileName: selectedURL.lastPathComponent)
-                    } catch { importError = error }
+                    } catch {
+                        importError = error
+                    }
                 }
                 if let coordinationError { throw coordinationError }
                 if let importError { throw importError }
-                message = "Video imported successfully and saved inside Nelly."
+                imported += 1
+            } catch {
+                failures += 1
             }
-        } catch {
-            if mode == .backup {
-                backupRestoreMessage = "Restore failed: \(error.localizedDescription)"
-            } else {
-                message = "Could not import video: \(error.localizedDescription)"
-            }
+        }
+
+        if failures == 0 {
+            message = imported == 1
+                ? "1 video imported successfully from Files."
+                : "\(imported) videos imported successfully from Files."
+        } else {
+            message = "\(imported) video(s) imported; \(failures) file(s) could not be imported."
         }
     }
 
@@ -677,31 +601,21 @@ private struct VideoEditorView: View {
 }
 
 
-// Uses Apple's document picker directly instead of SwiftUI fileImporter.
-// This allows selecting a complete backup directory as well as individual videos.
+// Apple's document picker supports selecting several video files in one pass.
 private struct NellyImportDocumentPicker: UIViewControllerRepresentable {
-    let mode: AdminFileImportMode
-    let onPick: (URL) -> Void
+    let onPick: ([URL]) -> Void
 
     func makeCoordinator() -> Coordinator {
         Coordinator(onPick: onPick)
     }
 
     func makeUIViewController(context: Context) -> UIDocumentPickerViewController {
-        // Allow either the backup folder or its manifest file to be selected.
-        // Include JSON and generic data so Files providers with varying type metadata work.
-        // Backup restore is folder-based: the manifest and Videos directory must
-        // remain together. Do not offer JSON/data files as alternatives, because
-        // selecting the manifest alone can detach it from its sibling video files.
-        let types: [UTType] = mode == .backup
-            ? [.folder]
-            : [.video, .movie, .mpeg4Movie, .quickTimeMovie]
         let picker = UIDocumentPickerViewController(
-            forOpeningContentTypes: types,
-            asCopy: mode == .video
+            forOpeningContentTypes: [.movie, .video, .mpeg4Movie, .quickTimeMovie],
+            asCopy: true
         )
         picker.delegate = context.coordinator
-        picker.allowsMultipleSelection = false
+        picker.allowsMultipleSelection = true
         picker.shouldShowFileExtensions = true
         return picker
     }
@@ -709,12 +623,12 @@ private struct NellyImportDocumentPicker: UIViewControllerRepresentable {
     func updateUIViewController(_ controller: UIDocumentPickerViewController, context: Context) {}
 
     final class Coordinator: NSObject, UIDocumentPickerDelegate {
-        private let onPick: (URL) -> Void
-        init(onPick: @escaping (URL) -> Void) { self.onPick = onPick }
+        private let onPick: ([URL]) -> Void
+        init(onPick: @escaping ([URL]) -> Void) { self.onPick = onPick }
 
         func documentPicker(_ controller: UIDocumentPickerViewController, didPickDocumentsAt urls: [URL]) {
-            guard let url = urls.first else { return }
-            onPick(url)
+            guard !urls.isEmpty else { return }
+            onPick(urls)
         }
     }
 }
