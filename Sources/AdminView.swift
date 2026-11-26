@@ -196,25 +196,6 @@ struct AdminView: View {
                         .foregroundStyle(.secondary)
                 }
             }
-            .sheet(item: $activeFilePicker) { mode in
-                NellyImportDocumentPicker(mode: mode) { selectedURL in
-                    // Keep the security-scoped grant alive, dismiss the picker first,
-                    // then start the potentially lengthy file-copy operation.
-                    let hasAccess = selectedURL.startAccessingSecurityScopedResource()
-                    activeFilePicker = nil
-                    if mode == .backup {
-                        backupRestoreMessage = "Backup selected. Checking the manifest and videos…"
-                    }
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
-                        handleImportedFile(
-                            selectedURL,
-                            mode: mode,
-                            securityAccessAlreadyStarted: hasAccess
-                        )
-                    }
-                }
-                .ignoresSafeArea()
-            }
             .onAppear { draftDailyLimit = screenTime.dailyLimit }
             .navigationTitle("Nelly Admin")
             .alert("Upload all existing videos?", isPresented: $showUploadExistingConfirmation) {
@@ -263,6 +244,25 @@ struct AdminView: View {
                     }
                 }
             }
+        }
+        .sheet(item: $activeFilePicker) { mode in
+            NellyImportDocumentPicker(mode: mode) { selectedURL in
+                // Keep the security-scoped grant alive, dismiss the picker first,
+                // then start the potentially lengthy file-copy operation.
+                let hasAccess = selectedURL.startAccessingSecurityScopedResource()
+                activeFilePicker = nil
+                if mode == .backup {
+                    backupRestoreMessage = "Backup selected. Checking the manifest and videos…"
+                }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+                    handleImportedFile(
+                        selectedURL,
+                        mode: mode,
+                        securityAccessAlreadyStarted: hasAccess
+                    )
+                }
+            }
+            .ignoresSafeArea()
         }
     }
 
