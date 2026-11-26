@@ -1,0 +1,12 @@
+name = "nelly-sync"
+main = "worker.js"
+compatibility_date = "2026-11-24"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "nelly-sync"
+database_id = "cb36bd6e-27b0-4004-9373-6783c6068a8d"
+
+[[kv_namespaces]]
+binding = "RELAY"
+id = "c69e8ec030274f58a87283170912e936"
